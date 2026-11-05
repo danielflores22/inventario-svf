@@ -210,7 +210,7 @@ body:not(.cont) .cont-only{display:none!important}
   <div class="card cont-only">
     <h2>1. Cargar el paquete del supervisor</h2>
     <div class="small mut">Archivo <b>paquete_conteo_….json</b> que te envía el supervisor. Al cargar uno nuevo se mantienen tus conteos.</div>
-    <div class="row" style="margin-top:10px"><input type="file" id="pkgIn" accept=".json,application/json"></div>
+    <div class="row" style="margin-top:10px"><input type="file" id="pkgIn" accept=".json,.txt,application/json,text/plain"></div>
     <h2 style="margin-top:16px">2. Enviar mis conteos al supervisor</h2>
     <div class="small mut">Envía el archivo varias veces al día (por ejemplo al cerrar cada percha). No pasa nada si lo envías repetido.</div>
     <div class="row" style="margin-top:10px"><button class="b p big" id="sendCounts">Enviar mis conteos</button></div>
@@ -224,7 +224,7 @@ body:not(.cont) .cont-only{display:none!important}
       <button class="b p" id="pkgOut">Generar paquete para celulares</button>
     </div>
     <div class="row" style="margin-top:10px">
-      <label class="b">Cargar conteos de parejas <input type="file" id="mergeIn" accept=".json,application/json" multiple class="hide"></label>
+      <label class="b">Cargar conteos de parejas <input type="file" id="mergeIn" accept=".json,.txt,application/json,text/plain" multiple class="hide"></label>
     </div>
     <div id="mergeInfo" class="small" style="margin-top:8px"></div>
   </div>
@@ -501,11 +501,15 @@ $('#wipe').onclick=()=>{if(confirm('¿Borrar todos los datos y conteos de este n
 document.querySelectorAll('input[name=role]').forEach(r=>r.onchange=()=>{S.meta.role=r.value;save();render()});
 $('#rolePair').onchange=e=>{S.meta.pair=e.target.value.trim();save();applyRole()};
 function pendingSend(){const since=S.meta.lastSent||'';let n=0;for(const k in S.counts)if((S.counts[k].ts||'')>since)n++;n+=S.extras.filter(x=>(x.ts||'')>since).length;for(const l in S.locs){const L=S.locs[l];if((L.closedAt||'')>since||(L.reopenedAt||'')>since)n++}return n}
+/* Compartir archivo: iPhone no acepta application/json, se intenta como texto */
+async function shareFile(obj,name){if(!navigator.share||!navigator.canShare)return false;const txt=JSON.stringify(obj);
+  const tries=[new File([txt],name,{type:'text/plain'}),new File([txt],name.replace(/\.json$/,'.txt'),{type:'text/plain'}),new File([txt],name,{type:'application/json'})];
+  for(const f of tries){let ok=false;try{ok=navigator.canShare({files:[f]})}catch(e){}if(!ok)continue;try{await navigator.share({files:[f],title:name});return true}catch(err){if(err.name==='AbortError')return 'abort';return false}}return false}
 function download(obj,name){const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);return blob}
 const stamp=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
-$('#pkgOut').onclick=()=>{const f=norm($('#pkgFilter').value);const lines=S.lines.filter(l=>!f||norm(l.loc).includes(f)||norm(locLabel(l.loc)).includes(f)).map(l=>({id:l.id,loc:l.loc,prod:l.prod,code:l.code,name:l.name,lot:l.lot,barcode:l.barcode,uom:l.uom,qty:null,cost:null}));
+$('#pkgOut').onclick=async()=>{const f=norm($('#pkgFilter').value);const lines=S.lines.filter(l=>!f||norm(l.loc).includes(f)||norm(locLabel(l.loc)).includes(f)).map(l=>({id:l.id,loc:l.loc,prod:l.prod,code:l.code,name:l.name,lot:l.lot,barcode:l.barcode,uom:l.uom,qty:null,cost:null}));
   if(!lines.length){toast('No hay ubicaciones con ese filtro');return}const locs={};lines.forEach(l=>{if(S.locs[l.loc])locs[l.loc]={status:S.locs[l.loc].status,pair:S.locs[l.loc].pair||'',reopenedAt:S.locs[l.loc].reopenedAt||null}});
-  download({type:'paquete',v:1,createdAt:new Date().toISOString(),lines,locs},`paquete_conteo_${stamp()}.json`);toast(`Paquete con ${lines.length} líneas`)};
+  {const obj={type:'paquete',v:1,createdAt:new Date().toISOString(),lines,locs},nm=`paquete_conteo_${stamp()}.json`;const sh=await shareFile(obj,nm);if(sh==='abort')return;if(!sh)download(obj,nm)}toast(`Paquete con ${lines.length} líneas`)};
 $('#pkgIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.type!=='paquete'||!Array.isArray(d.lines))throw new Error('no es un paquete del supervisor');
   const ids=new Set(d.lines.map(l=>l.id));const kept=Object.keys(S.counts).filter(k=>ids.has(k)).length;S.lines=d.lines;for(const k in S.counts)if(!ids.has(k))delete S.counts[k];
   for(const [l,v] of Object.entries(d.locs||{})){const L=S.locs[l]=S.locs[l]||{};if(v.status==='rec'&&(v.reopenedAt||'')>(L.closedAt||'')){L.status='rec';L.closedAt=null;L.reopenedAt=v.reopenedAt}if(v.pair&&!L.pair)L.pair=v.pair}
@@ -513,9 +517,7 @@ $('#pkgIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const 
 $('#sendCounts').onclick=async()=>{if(!S.meta.pair){alertBox('Escribe primero el nombre de tu pareja arriba');$('#rolePair').focus();return}
   const counts={};const byId=new Map(S.lines.map(l=>[l.id,l]));for(const [k,c] of Object.entries(S.counts)){if(!c.ts)continue;const l=byId.get(k);const {dirty,...rest}=c;counts[k]={...rest,k:l?lineKey(l):''}}
   const pkg={type:'conteo',v:1,pair:S.meta.pair,device:S.meta.device||(S.meta.device=uid()),exportedAt:new Date().toISOString(),counts,extras:S.extras,locs:S.locs};
-  const name=`conteo_${S.meta.pair.replace(/[^\w\-]+/g,'_').slice(0,30)}_${stamp()}.json`;const file=new File([JSON.stringify(pkg)],name,{type:'application/json'});
-  let shared=false;if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:name});shared=true}catch(err){if(err.name==='AbortError')return}}
-  if(!shared)download(pkg,name);S.meta.lastSent=pkg.exportedAt;save();applyRole();$('#sendInfo').textContent=`Último envío: ${new Date(pkg.exportedAt).toLocaleString('es-EC')} (${Object.keys(counts).length} conteos, ${S.extras.length} no listados).`+(shared?'':' Se descargó el archivo: envíalo por WhatsApp o correo al supervisor.')};
+  const name=`conteo_${S.meta.pair.replace(/[^\w\-]+/g,'_').slice(0,30)}_${stamp()}.json`;const shared=await shareFile(pkg,name);if(shared==='abort')return;if(!shared)download(pkg,name);S.meta.lastSent=pkg.exportedAt;save();applyRole();$('#sendInfo').textContent=`Último envío: ${new Date(pkg.exportedAt).toLocaleString('es-EC')} (${Object.keys(counts).length} conteos, ${S.extras.length} no listados).`+(shared?'':' Se descargó el archivo: envíalo por WhatsApp o correo al supervisor.')};
 $('#mergeIn').onchange=async e=>{const files=[...e.target.files];if(!files.length)return;const byId=new Map(S.lines.map(l=>[l.id,l]));const byKey=new Map(S.lines.map(l=>[lineKey(l),l]));const msgs=[];
   for(const f of files){try{const d=JSON.parse(await f.text());if(d.type!=='conteo')throw new Error('no es un archivo de conteo');let nc=0,nx=0,nl=0,unk=0;
     for(const [id,c] of Object.entries(d.counts||{})){const l=byId.get(id)||byKey.get(c.k);if(!l){unk++;continue}const cur=S.counts[l.id];const {k,...rest}=c;if(!cur||(rest.ts||'')>(cur.ts||'')){S.counts[l.id]={...rest,pair:d.pair};nc++}}
