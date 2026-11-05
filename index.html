@@ -114,7 +114,7 @@ body:not(.cont) .cont-only{display:none!important}
     </div>
     <div class="small mut" style="margin-top:6px">Escribe varias palabras para afinar: todas deben aparecer. No importan tildes, mayúsculas, espacios ni guiones en los códigos.</div>
   </div>
-  <div class="card"><div id="qInfo" class="small mut"></div><div class="scroll"><table id="qTbl"></table></div></div>
+  <div class="card"><div id="qInfo" class="small mut"></div><div class="scroll" id="qWrap"><table id="qTbl"></table></div><div id="qCards" class="hide"></div></div>
 </section>
 
 <!-- CONTEO -->
@@ -331,7 +331,10 @@ function hl(text,q){let s=esc(text);const toks=norm(q).split(/\s+/).filter(t=>t.
 function rSearch(){const q=$('#q').value.trim();const showQ=$('#qShowQty').checked;
   if(!S.lines.length){$('#qInfo').textContent='Primero carga el Excel de Odoo en la pestaña Datos (o los datos de prueba).';$('#qTbl').innerHTML='';return}
   if(!q){$('#qInfo').textContent='Escribe para buscar.';$('#qTbl').innerHTML='';return}
-  const res=search(q);$('#qInfo').textContent=res.length>=300?'Más de 300 resultados: agrega otra palabra.':`${res.length} resultado(s)`;
+  const res=search(q);const phone=matchMedia('(max-width:700px)').matches;$('#qWrap').classList.toggle('hide',phone);$('#qCards').classList.toggle('hide',!phone);
+  if(phone){$('#qInfo').textContent=res.length>=300?'Más de 300 resultados: agrega otra palabra.':`${res.length} resultado(s)`;$('#qTbl').innerHTML='';
+    $('#qCards').innerHTML=res.map(l=>{const fin=finalQty(S.counts[l.id]);return `<div class="lc"><div class="row" style="justify-content:space-between"><span class="chip">${esc(locLabel(l.loc))}</span><span class="small mut">${hl(l.code,q)}</span></div><div class="t" style="margin-top:4px">${hl(l.name,q)}</div>${l.lot?`<div class="small">Serie: <b>${hl(l.lot,q)}</b></div>`:''}${l.barcode?`<div class="small mut">Barras: ${hl(l.barcode,q)}</div>`:''}<div class="small mut">${hl(l.loc,q)}</div>${showQ?`<div class="small">Sistema ${fmt(l.qty)} · Contado ${fmt(fin)}</div>`:''}<div class="r"><button class="b s" data-goloc="${esc(l.loc)}">Ir a ubicación</button></div></div>`}).join('');return}
+  $('#qCards').innerHTML='';$('#qInfo').textContent=res.length>=300?'Más de 300 resultados: agrega otra palabra.':`${res.length} resultado(s)`;
   $('#qTbl').innerHTML='<tr><th>Ubicación</th><th>Código</th><th>Descripción</th><th>Serie / lote</th><th>Cód. barras</th>'+(showQ?'<th class="n">Sistema</th><th class="n">Contado</th>':'')+'<th></th></tr>'+
   res.map(l=>{const c=S.counts[l.id];const fin=finalQty(c);return `<tr><td><span class="chip">${esc(locLabel(l.loc))}</span><div class="small mut">${hl(l.loc,q)}</div></td><td>${hl(l.code,q)}</td><td>${hl(l.name,q)}</td><td>${hl(l.lot,q)}</td><td class="small">${hl(l.barcode,q)}</td>`+(showQ?`<td class="n">${fmt(l.qty)}</td><td class="n">${fmt(fin)}</td>`:'')+`<td><button class="b s" data-goloc="${esc(l.loc)}">Ir a ubicación</button></td></tr>`}).join('')}
 $('#q').oninput=()=>rSearch();$('#qShowQty').onchange=rSearch;
