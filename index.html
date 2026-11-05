@@ -209,8 +209,8 @@ body:not(.cont) .cont-only{display:none!important}
   </div>
   <div class="card cont-only">
     <h2>1. Cargar el paquete del supervisor</h2>
-    <div class="small mut">Archivo <b>paquete_conteo_….json</b> que te envía el supervisor. Al cargar uno nuevo se mantienen tus conteos.</div>
-    <div class="row" style="margin-top:10px"><input type="file" id="pkgIn" accept=".json,.txt,application/json,text/plain"></div>
+    <div class="small mut">Archivo <b>paquete_conteo_….xlsx</b> que te envía el supervisor. Al cargar uno nuevo se mantienen tus conteos.</div>
+    <div class="row" style="margin-top:10px"><input type="file" id="pkgIn" accept=".xlsx,.json,.txt,.pdf"></div>
     <h2 style="margin-top:16px">2. Enviar mis conteos al supervisor</h2>
     <div class="small mut">Envía el archivo varias veces al día (por ejemplo al cerrar cada percha). No pasa nada si lo envías repetido.</div>
     <div class="row" style="margin-top:10px"><button class="b p big" id="sendCounts">Enviar mis conteos</button></div>
@@ -218,7 +218,7 @@ body:not(.cont) .cont-only{display:none!important}
   </div>
   <div class="card sup-only">
     <h2>Celulares de las parejas</h2>
-    <div class="small mut">1) Genera el paquete y envíalo a cada celular junto con este mismo archivo .html. 2) Recibe los archivos <b>conteo_….json</b> de cada pareja y cárgalos aquí; se unen con lo que ya tienes.</div>
+    <div class="small mut">1) Genera el paquete y envíalo a cada celular junto con este mismo archivo .html. 2) Recibe los Excel <b>conteo_….xlsx</b> de cada pareja y cárgalos aquí; se unen con lo que ya tienes.</div>
     <div class="row" style="margin-top:10px">
       <input id="pkgFilter" placeholder="Solo ubicaciones que contengan… (vacío = todas)" class="grow">
       <button class="b p" id="pkgOut">Generar paquete para celulares</button>
@@ -228,7 +228,7 @@ body:not(.cont) .cont-only{display:none!important}
       <button class="b" id="pasteGo">Unir texto pegado</button>
     </div>
     <div class="row" style="margin-top:10px">
-      <label class="b">Cargar conteos de parejas <input type="file" id="mergeIn" accept=".json,.txt,application/json,text/plain" multiple class="hide"></label>
+      <label class="b">Cargar conteos de parejas <input type="file" id="mergeIn" accept=".xlsx,.json,.txt,.pdf" multiple class="hide"></label>
     </div>
     <div id="mergeInfo" class="small" style="margin-top:8px"></div>
   </div>
@@ -506,24 +506,52 @@ document.querySelectorAll('input[name=role]').forEach(r=>r.onchange=()=>{S.meta.
 $('#rolePair').onchange=e=>{S.meta.pair=e.target.value.trim();save();applyRole()};
 function pendingSend(){const since=S.meta.lastSent||'';let n=0;for(const k in S.counts)if((S.counts[k].ts||'')>since)n++;n+=S.extras.filter(x=>(x.ts||'')>since).length;for(const l in S.locs){const L=S.locs[l];if((L.closedAt||'')>since||(L.reopenedAt||'')>since)n++}return n}
 /* Compartir archivo: iPhone no acepta application/json, se intenta como texto */
-async function shareFile(obj,name){if(!navigator.share||!navigator.canShare)return false;const txt=JSON.stringify(obj);
-  const tries=[new File([txt],name,{type:'text/plain'}),new File([txt],name.replace(/\.json$/,'.txt'),{type:'text/plain'}),new File([txt],name,{type:'application/json'})];
-  for(const f of tries){let ok=false;try{ok=navigator.canShare({files:[f]})}catch(e){}if(!ok)continue;try{await navigator.share({files:[f],title:name});return true}catch(err){if(err.name==='AbortError')return 'abort';return false}}return false}
+/* Los datos viajan dentro de un PDF (WhatsApp lo envía como documento). El PDF muestra un resumen legible y lleva los datos en una línea %INVDATA. */
+function b64enc(str){const by=new TextEncoder().encode(str);let s='';for(let i=0;i<by.length;i+=0x8000)s+=String.fromCharCode.apply(null,by.subarray(i,i+0x8000));return btoa(s)}
+function b64dec(b){const bin=atob(b);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new TextDecoder().decode(u)}
+function ascii(s){return String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\x20-\x7e]/g,'?').replace(/([\\()])/g,'\\$1')}
+function makePdf(obj,title,summary){const lines=[title,'',...summary].slice(0,55);
+  let content='BT /F1 11 Tf 40 800 Td 14 TL\n'+lines.map(l=>'('+ascii(l).slice(0,95)+') Tj T*').join('\n')+'\nET';
+  const objs=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>','<< /Length '+content.length+' >>\nstream\n'+content+'\nendstream'];
+  let out='%PDF-1.4\n%INVDATA:'+b64enc(JSON.stringify(obj))+'\n';const offs=[];objs.forEach((o,k)=>{offs.push(out.length);out+=(k+1)+' 0 obj\n'+o+'\nendobj\n'});
+  const x=out.length;out+='xref\n0 '+(objs.length+1)+'\n0000000000 65535 f \n'+offs.map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size '+(objs.length+1)+' /Root 1 0 R >>\nstartxref\n'+x+'\n%%EOF\n';return out}
+function pdfSummary(obj){if(obj.type==='conteo'){const by={};const ids=new Map(S.lines.map(l=>[l.id,l]));Object.keys(obj.counts).forEach(id=>{const l=ids.get(id);const k=l?locLabel(l.loc):'?';by[k]=(by[k]||0)+1});
+    return [`Pareja: ${obj.pair}`,`Enviado: ${new Date(obj.exportedAt).toLocaleString('es-EC')}`,`Lineas contadas: ${Object.keys(obj.counts).length}`,`No listados: ${obj.extras.length}`,'','Por ubicacion:',...Object.entries(by).map(([k,n])=>`  ${k}: ${n} lineas`),'','Para cargarlo: app de inventario > Datos > Cargar conteos de parejas.']}
+  return [`Paquete del supervisor`,`Creado: ${new Date(obj.createdAt).toLocaleString('es-EC')}`,`Lineas: ${obj.lines.length}`,'','Para cargarlo: app de inventario > Enviar / cargar > Cargar el paquete del supervisor.']}
+/* Excel legible + hoja _datos con el contenido exacto (en trozos, límite de celda 32.767) */
+const XLSX_MIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+function makeXlsx(obj){const wb=XLSX.utils.book_new();const ids=new Map(S.lines.map(l=>[l.id,l]));
+  if(obj.type==='conteo'){const rows=[['Ubicación','Código','Descripción','Serie','UdM','Conteo','Recuento','Serie leída','Observación','Pareja','Fecha']];
+    for(const [id,c] of Object.entries(obj.counts)){const l=ids.get(id)||{};rows.push([l.loc||'',l.code||'',l.name||'',l.lot||'',l.uom||'',c.q1??'',c.q2??'',c.lotRead||'',c.obs||'',obj.pair,c.ts||''])}
+    rows.splice(1,rows.length-1,...rows.slice(1).sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'es',{numeric:true})));
+    XLSX.utils.book_append_sheet(wb,sheetFrom(rows,[24,14,40,14,6,8,8,14,24,16,22]),'Conteo');
+    XLSX.utils.book_append_sheet(wb,sheetFrom([['Ubicación','Descripción / caja','Código en caja','Serie','Cantidad','Tiene foto','Pareja','Fecha']].concat(obj.extras.map(x=>[x.loc,x.name,x.code,x.lot,x.qty,x.photo?'Sí':'No',x.pair||obj.pair,x.ts])),[24,36,16,14,9,9,16,22]),'No listados')}
+  else XLSX.utils.book_append_sheet(wb,sheetFrom([['Ubicación','Código','Descripción','Serie','UdM']].concat(obj.lines.map(l=>[l.loc,l.code,l.name,l.lot,l.uom])),[24,14,40,14,6]),'Productos');
+  const js=JSON.stringify(obj);const chunks=[['No modificar: datos para la app de inventario']];for(let k=0;k<js.length;k+=30000)chunks.push([js.slice(k,k+30000)]);
+  const ws=XLSX.utils.aoa_to_sheet(chunks);XLSX.utils.book_append_sheet(wb,ws,'_datos');wb.Workbook={Sheets:wb.SheetNames.map(n=>({name:n,Hidden:n==='_datos'?1:0}))};
+  return XLSX.write(wb,{bookType:'xlsx',type:'array'})}
+function xname(name){return name.replace(/\.json$/,'.xlsx')}
+async function shareFile(obj,name){if(!navigator.share||!navigator.canShare)return false;
+  const tries=[()=>new File([makeXlsx(obj)],xname(name),{type:XLSX_MIME}),()=>new File([makePdf(obj,name.replace(/\.json$/,''),pdfSummary(obj))],name.replace(/\.json$/,'.pdf'),{type:'application/pdf'}),()=>new File([JSON.stringify(obj)],name,{type:'text/plain'})];
+  for(const mk of tries){const f=mk();let ok=false;try{ok=navigator.canShare({files:[f]})}catch(e){}if(!ok)continue;try{await navigator.share({files:[f],title:f.name});return true}catch(err){if(err.name==='AbortError')return 'abort';return false}}return false}
+function downloadXlsx(obj,name){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([makeXlsx(obj)],{type:XLSX_MIME}));a.download=xname(name);a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000)}
+/* Lee un archivo de la app: .json, texto o PDF con %INVDATA */
+async function readPayload(f){const head=new Uint8Array(await f.slice(0,4).arrayBuffer());if(head[0]===0x50&&head[1]===0x4b){const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});const ws=wb.Sheets['_datos'];if(!ws)throw new Error('el Excel no tiene la hoja de datos de la app');const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});return JSON.parse(rows.slice(1).map(r=>r[0]).join(''))}const t=await f.text();const m=t.match(/%INVDATA:([A-Za-z0-9+\/=]+)/);if(m)return JSON.parse(b64dec(m[1]));const s=t.indexOf('{');if(s<0)throw new Error('el archivo no tiene datos de la app');return JSON.parse(t.slice(s,t.lastIndexOf('}')+1))}
 function download(obj,name){const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);return blob}
 const stamp=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
 $('#pkgOut').onclick=async()=>{const f=norm($('#pkgFilter').value);const lines=S.lines.filter(l=>!f||norm(l.loc).includes(f)||norm(locLabel(l.loc)).includes(f)).map(l=>({id:l.id,loc:l.loc,prod:l.prod,code:l.code,name:l.name,lot:l.lot,barcode:l.barcode,uom:l.uom,qty:null,cost:null}));
   if(!lines.length){toast('No hay ubicaciones con ese filtro');return}const locs={};lines.forEach(l=>{if(S.locs[l.loc])locs[l.loc]={status:S.locs[l.loc].status,pair:S.locs[l.loc].pair||'',reopenedAt:S.locs[l.loc].reopenedAt||null}});
-  {const obj={type:'paquete',v:1,createdAt:new Date().toISOString(),lines,locs},nm=`paquete_conteo_${stamp()}.json`;const sh=await shareFile(obj,nm);if(sh==='abort')return;if(!sh)download(obj,nm)}toast(`Paquete con ${lines.length} líneas`)};
-$('#pkgIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.type!=='paquete'||!Array.isArray(d.lines))throw new Error('no es un paquete del supervisor');
+  {const obj={type:'paquete',v:1,createdAt:new Date().toISOString(),lines,locs},nm=`paquete_conteo_${stamp()}.json`;const sh=await shareFile(obj,nm);if(sh==='abort')return;if(!sh)downloadXlsx(obj,nm)}toast(`Paquete con ${lines.length} líneas`)};
+$('#pkgIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=await readPayload(f);if(d.type!=='paquete'||!Array.isArray(d.lines))throw new Error('no es un paquete del supervisor');
   const ids=new Set(d.lines.map(l=>l.id));const kept=Object.keys(S.counts).filter(k=>ids.has(k)).length;S.lines=d.lines;for(const k in S.counts)if(!ids.has(k))delete S.counts[k];
   for(const [l,v] of Object.entries(d.locs||{})){const L=S.locs[l]=S.locs[l]||{};if(v.status==='rec'&&(v.reopenedAt||'')>(L.closedAt||'')){L.status='rec';L.closedAt=null;L.reopenedAt=v.reopenedAt}if(v.pair&&!L.pair)L.pair=v.pair}
   S.meta.role='cont';S.meta.pkgAt=d.createdAt;save();toast(`Paquete cargado: ${d.lines.length} líneas`+(kept?`, ${kept} conteos conservados`:''),3500);render()}catch(err){alertBox('Archivo no válido: '+err.message)}e.target.value=''};
 $('#sendCounts').onclick=async()=>{if(!S.meta.pair){alertBox('Escribe primero el nombre de tu pareja arriba');$('#rolePair').focus();return}
   const counts={};const byId=new Map(S.lines.map(l=>[l.id,l]));for(const [k,c] of Object.entries(S.counts)){if(!c.ts)continue;const l=byId.get(k);const {dirty,...rest}=c;counts[k]={...rest,k:l?lineKey(l):''}}
   const pkg={type:'conteo',v:1,pair:S.meta.pair,device:S.meta.device||(S.meta.device=uid()),exportedAt:new Date().toISOString(),counts,extras:S.extras,locs:S.locs};
-  const name=`conteo_${S.meta.pair.replace(/[^\w\-]+/g,'_').slice(0,30)}_${stamp()}.json`;const shared=await shareFile(pkg,name);if(shared==='abort')return;if(!shared)download(pkg,name);S.meta.lastSent=pkg.exportedAt;save();applyRole();$('#sendInfo').textContent=`Último envío: ${new Date(pkg.exportedAt).toLocaleString('es-EC')} (${Object.keys(counts).length} conteos, ${S.extras.length} no listados).`+(shared?'':' Se descargó el archivo: envíalo por WhatsApp o correo al supervisor.')};
+  const name=`conteo_${S.meta.pair.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w\-]+/g,'_').slice(0,30)}_${stamp()}.json`;const shared=await shareFile(pkg,name);if(shared==='abort')return;if(!shared)downloadXlsx(pkg,name);S.meta.lastSent=pkg.exportedAt;save();applyRole();$('#sendInfo').textContent=`Último envío: ${new Date(pkg.exportedAt).toLocaleString('es-EC')} (${Object.keys(counts).length} conteos, ${S.extras.length} no listados).`+(shared?'':' Se descargó el Excel: envíalo por WhatsApp o correo al supervisor.')};
 $('#mergeIn').onchange=async e=>{const files=[...e.target.files];if(!files.length)return;const byId=new Map(S.lines.map(l=>[l.id,l]));const byKey=new Map(S.lines.map(l=>[lineKey(l),l]));const msgs=[];
-  for(const f of files){try{const d=JSON.parse(await f.text());msgs.push(mergeOne(d,f.name,byId,byKey))}catch(err){msgs.push(`<div class="neg">✗ ${esc(f.name)}: ${esc(err.message)}</div>`)}}
+  for(const f of files){try{const d=await readPayload(f);msgs.push(mergeOne(d,f.name,byId,byKey))}catch(err){msgs.push(`<div class="neg">✗ ${esc(f.name)}: ${esc(err.message)}</div>`)}}
   save();$('#mergeInfo').innerHTML=msgs.join('');render();e.target.value=''};
 function mergeOne(d,fname,byId,byKey){{if(d.type!=='conteo')throw new Error('no es un archivo de conteo');let nc=0,nx=0,nl=0,unk=0;
     for(const [id,c] of Object.entries(d.counts||{})){const l=byId.get(id)||byKey.get(c.k);if(!l){unk++;continue}const cur=S.counts[l.id];const {k,...rest}=c;if(!cur||(rest.ts||'')>(cur.ts||'')){S.counts[l.id]={...rest,pair:d.pair};nc++}}
