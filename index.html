@@ -224,6 +224,10 @@ body:not(.cont) .cont-only{display:none!important}
       <button class="b p" id="pkgOut">Generar paquete para celulares</button>
     </div>
     <div class="row" style="margin-top:10px">
+      <textarea id="pasteIn" rows="2" class="grow" placeholder="O pega aquí el texto del conteo si llegó como mensaje de WhatsApp"></textarea>
+      <button class="b" id="pasteGo">Unir texto pegado</button>
+    </div>
+    <div class="row" style="margin-top:10px">
       <label class="b">Cargar conteos de parejas <input type="file" id="mergeIn" accept=".json,.txt,application/json,text/plain" multiple class="hide"></label>
     </div>
     <div id="mergeInfo" class="small" style="margin-top:8px"></div>
@@ -519,13 +523,17 @@ $('#sendCounts').onclick=async()=>{if(!S.meta.pair){alertBox('Escribe primero el
   const pkg={type:'conteo',v:1,pair:S.meta.pair,device:S.meta.device||(S.meta.device=uid()),exportedAt:new Date().toISOString(),counts,extras:S.extras,locs:S.locs};
   const name=`conteo_${S.meta.pair.replace(/[^\w\-]+/g,'_').slice(0,30)}_${stamp()}.json`;const shared=await shareFile(pkg,name);if(shared==='abort')return;if(!shared)download(pkg,name);S.meta.lastSent=pkg.exportedAt;save();applyRole();$('#sendInfo').textContent=`Último envío: ${new Date(pkg.exportedAt).toLocaleString('es-EC')} (${Object.keys(counts).length} conteos, ${S.extras.length} no listados).`+(shared?'':' Se descargó el archivo: envíalo por WhatsApp o correo al supervisor.')};
 $('#mergeIn').onchange=async e=>{const files=[...e.target.files];if(!files.length)return;const byId=new Map(S.lines.map(l=>[l.id,l]));const byKey=new Map(S.lines.map(l=>[lineKey(l),l]));const msgs=[];
-  for(const f of files){try{const d=JSON.parse(await f.text());if(d.type!=='conteo')throw new Error('no es un archivo de conteo');let nc=0,nx=0,nl=0,unk=0;
+  for(const f of files){try{const d=JSON.parse(await f.text());msgs.push(mergeOne(d,f.name,byId,byKey))}catch(err){msgs.push(`<div class="neg">✗ ${esc(f.name)}: ${esc(err.message)}</div>`)}}
+  save();$('#mergeInfo').innerHTML=msgs.join('');render();e.target.value=''};
+function mergeOne(d,fname,byId,byKey){{if(d.type!=='conteo')throw new Error('no es un archivo de conteo');let nc=0,nx=0,nl=0,unk=0;
     for(const [id,c] of Object.entries(d.counts||{})){const l=byId.get(id)||byKey.get(c.k);if(!l){unk++;continue}const cur=S.counts[l.id];const {k,...rest}=c;if(!cur||(rest.ts||'')>(cur.ts||'')){S.counts[l.id]={...rest,pair:d.pair};nc++}}
     const have=new Map(S.extras.map(x=>[x.id,x]));for(const x of d.extras||[]){const cur=have.get(x.id);if(!cur){S.extras.push({...x,pair:x.pair||d.pair});nx++}else if(!cur.match&&(x.ts||'')>(cur.ts||'')){Object.assign(cur,{name:x.name,code:x.code,lot:x.lot,qty:x.qty,photo:x.photo||cur.photo})}}
     for(const [l,v] of Object.entries(d.locs||{})){const L=S.locs[l]=S.locs[l]||{};if(v.pair&&!L.pair)L.pair=v.pair;
       if(v.status==='cerr'&&v.closedAt&&v.closedAt>(L.reopenedAt||'')&&L.status!=='cerr'){L.status='cerr';L.closedAt=v.closedAt;nl++}else if((v.status==='cont'||v.status==='rec')&&(!L.status||L.status==='pend'))L.status='cont'}
-    msgs.push(`<div>✓ <b>${esc(d.pair)}</b> (${esc(f.name)}): ${nc} conteos nuevos o actualizados, ${nx} no listados nuevos, ${nl} ubicaciones cerradas${unk?`, <span class="neg">${unk} líneas no encontradas</span>`:''}.</div>`)}catch(err){msgs.push(`<div class="neg">✗ ${esc(f.name)}: ${esc(err.message)}</div>`)}}
-  save();$('#mergeInfo').innerHTML=msgs.join('');render();e.target.value=''};
+    return `<div>✓ <b>${esc(d.pair)}</b> (${esc(fname)}): ${nc} conteos nuevos o actualizados, ${nx} no listados nuevos, ${nl} ubicaciones cerradas${unk?`, <span class="neg">${unk} líneas no encontradas</span>`:''}.</div>`}}
+$('#pasteGo').onclick=()=>{const t=$('#pasteIn').value.trim();if(!t){toast('Pega primero el texto del conteo');return}const byId=new Map(S.lines.map(l=>[l.id,l]));const byKey=new Map(S.lines.map(l=>[lineKey(l),l]));let m;
+  try{const s=t.slice(t.indexOf('{'),t.lastIndexOf('}')+1);m=mergeOne(JSON.parse(s),'texto pegado',byId,byKey);$('#pasteIn').value=''}catch(err){m=`<div class="neg">✗ Texto pegado: ${esc(err.message)}. Revisa que hayas copiado el mensaje completo.</div>`}
+  save();$('#mergeInfo').innerHTML=m;render()};
 
 /* ========= Inicio ========= */
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
