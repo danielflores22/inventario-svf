@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buscador de productos</title>
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#14213d">
+<style>
+:root{--navy:#0F2A4F;--line:#d9e1ec;--muted:#5b6b80;--ok:#1e7a3c;--okbg:#e5f4e4;--warn:#8a5a00;--warnbg:#f9eeda;--no:#555;--nobg:#f0efec}
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1b2430;background:#f6f8fb}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:8px}.top h1{margin:0}.back{color:#cfd8ea;text-decoration:none;font-size:14px;white-space:nowrap}
+.load{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px}.load b{display:block;margin-bottom:6px}.load label{display:inline-block;margin-top:8px;background:var(--navy);color:#fff;border-radius:8px;padding:10px 14px;font-weight:600}.load input{display:none}.catinfo{font-size:12.5px;color:var(--muted);margin:2px 2px 8px}.catinfo a{color:var(--navy)}
+header{background:var(--navy);color:#fff;padding:12px 14px 14px;position:sticky;top:0;z-index:2}
+h1{font-size:16px;margin:0 0 8px;font-weight:600}
+.row{display:flex;gap:8px}
+input{flex:1;font-size:17px;padding:11px 12px;border-radius:8px;border:0;outline:none}
+button{font:inherit;border:0;border-radius:8px;padding:0 14px;background:#fff;color:var(--navy);font-weight:600}
+.filters{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.chip{font-size:13px;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.15);color:#fff}
+.chip.on{background:#fff;color:var(--navy)}
+main{padding:10px 12px 40px;max-width:760px;margin:0 auto}
+.info{color:var(--muted);font-size:13px;margin:4px 2px 10px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.code{font-size:19px;font-weight:700;letter-spacing:.2px;word-break:break-all}
+.desc{font-size:15px;margin-top:2px}
+.meta{font-size:13px;color:var(--muted);margin-top:4px}
+.meta b{color:#1b2430;font-weight:600}
+.badge{display:inline-block;font-size:12.5px;font-weight:600;border-radius:6px;padding:3px 8px;margin-top:7px}
+.H{background:var(--okbg);color:var(--ok)}.Z{background:var(--warnbg);color:var(--warn)}.N{background:var(--nobg);color:var(--no)}
+.tell{margin-top:8px;font-size:13.5px;background:#f6f8fb;border-radius:8px;padding:7px 9px}
+.copy{float:right;font-size:12.5px;padding:5px 9px;background:var(--navy);color:#fff;border-radius:6px}
+details{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px}
+summary{font-weight:600;cursor:pointer}
+details ol{padding-left:20px;margin:8px 0 4px}
+mark{background:#fff3b0;padding:0}
+</style></head><body>
+<header>
+<div class="top"><a class="back" href="./">‹ Volver a la app</a><h1>Buscador de productos</h1></div>
+<div class="row"><input id="q" type="search" placeholder="Código, serie o descripción" autocomplete="off" autocapitalize="characters"><button id="clr">Borrar</button></div>
+<div class="filters" id="f">
+<span class="chip on" data-f="all">Todo</span><span class="chip" data-f="H">En hojas</span><span class="chip" data-f="Z">Sin stock en sistema</span><span class="chip" data-f="N">No se cuenta</span>
+</div>
+</header>
+<main>
+<div class="load" id="load" hidden><b>Carga el catálogo para empezar</b>Abre el archivo <i>Catalogo buscador SVF.xlsx</i> que te envié (por WhatsApp o correo, guárdalo en Archivos). Se guarda en este celular y funciona sin internet.<br><label>Elegir archivo<input type="file" id="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label></div>
+<div class="catinfo" id="catinfo"></div>
+<details><summary>Cómo usarlo cuando aparece algo que no está en la hoja</summary>
+<ol>
+<li>Busca por el código de la caja o la etiqueta. Si no hay código, por la serie o por palabras de la descripción (por ejemplo: <i>filter oil</i>).</li>
+<li><b>Verde (en hojas):</b> el producto sí está en una hoja, pero en otra ubicación. Dale al contador el código exacto y anótalo como no listado con la nota "está en línea N°…". Avisa a la pareja de esa percha.</li>
+<li><b>Ámbar (sin stock en sistema):</b> SVF lo tiene registrado en cero. Se anota como no listado con el código exacto.</li>
+<li><b>Gris (no se cuenta):</b> el sistema lo tiene en Quito, tránsito, consignación u otra área fuera del conteo. Se anota como no listado y se consulta con el bodeguero.</li>
+<li>Si no aparece nada: se anota con foto como "por identificar" y se resuelve en la mesa de identificación.</li>
+</ol>
+Las búsquedas ignoran espacios, guiones y puntos: <i>06565140163</i> encuentra <i>06.56514-0163</i>.</details>
+<div class="info" id="info"></div>
+<div id="res"></div>
+</main>
+<script src="xlsx.full.min.js"></script>
+<script>
+let D=[];let IDX=[];
+const DBN='admificont_buscador';
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open(DBN,1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function kvGet(k){try{const db=await idb();return await new Promise(r=>{const q=db.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)})}catch(e){return null}}
+async function kvSet(k,v){const db=await idb();return new Promise((res,rej)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').put(v,k);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)})}
+function setData(cat){D=cat.rows;IDX=D.map(r=>({k:alnum(r[0]+' '+r[2]+' '+r[3]),c:alnum(r[0]),a:alnum(r[2]),s:alnum(r[3]),t:alnum(r[1]+' '+r[0]+' '+r[2]+' '+r[3]+' '+r[4]+' '+r[5])}));
+  document.getElementById('load').hidden=true;
+  document.getElementById('catinfo').innerHTML=esc(cat.name)+' · '+D.length.toLocaleString('es')+' registros · cargado '+esc(cat.loaded)+' · <a href="#" id="chg">Cambiar catálogo</a>';
+  document.getElementById('chg').onclick=e=>{e.preventDefault();document.getElementById('load').hidden=false;};
+  search();}
+function parseBook(buf,name){const wb=XLSX.read(buf,{type:'array'});const ws=wb.Sheets['Catalogo']||wb.Sheets[wb.SheetNames[0]];
+  const a=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});const h=a[0].map(x=>String(x).trim().toLowerCase());
+  const ix=n=>h.indexOf(n);const need=['código','descripción','código alterno','serie','ubicación','área','estado','línea','percha','pareja'];
+  if(need.some(n=>ix(n)<0))throw new Error('El archivo no es el catálogo del buscador.');
+  const rows=a.slice(1).filter(r=>r[ix('código')]!==''||r[ix('descripción')]!=='').map(r=>need.map((n,j)=>j===7?(+r[ix(n)]||0):String(r[ix(n)]??'')));
+  return {name,rows,loaded:new Date().toLocaleDateString('es-EC')};}
+document.addEventListener('change',async e=>{if(e.target.id!=='file')return;const f=e.target.files[0];if(!f)return;
+  try{const cat=parseBook(new Uint8Array(await f.arrayBuffer()),f.name);await kvSet('catalogo',cat).catch(()=>{});setData(cat);}
+  catch(err){document.getElementById('info').textContent='No se pudo leer el archivo: '+err.message;}e.target.value='';});
+
+const AREA_NOTE={H:'En hojas',Z:'Sin stock en sistema (cero)',N:'No se cuenta'};
+const norm=s=>(s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+const alnum=s=>norm(s).replace(/[^a-z0-9]/g,'');
+let filt='all';
+const esc=s=>(s||'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function search(){
+  const q=document.getElementById('q').value.trim();
+  const res=document.getElementById('res'),info=document.getElementById('info');
+  if(!D.length){res.innerHTML='';info.textContent='';return;}
+  if(q.length<2){res.innerHTML='';info.textContent='Escribe al menos 2 caracteres.';return;}
+  const toks=q.split(/\s+/).map(alnum).filter(Boolean), qa=alnum(q);
+  const out=[];
+  for(let i=0;i<D.length;i++){
+    const x=IDX[i],r=D[i];
+    if(filt!=='all'&&r[6]!==filt)continue;
+    let score=-1;
+    if(qa&&(x.c===qa||x.a===qa||x.s===qa))score=0;
+    else if(qa&&(x.c.startsWith(qa)||x.a.startsWith(qa)||x.s.startsWith(qa)))score=1;
+    else if(qa&&x.k.includes(qa))score=2;
+    else if(toks.every(t=>x.t.includes(t)))score=3;
+    if(score>=0)out.push([score,{H:0,Z:1,N:2}[r[6]],i]);
+  }
+  out.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  info.textContent=out.length?(out.length+' resultado'+(out.length>1?'s':'')+(out.length>60?' · se muestran 60, escribe más para afinar':'')):'Sin resultados. Prueba con menos letras o con otra palabra de la descripción.';
+  res.innerHTML=out.slice(0,60).map(([s,o,i])=>{
+    const r=D[i];
+    let badge,tell;
+    if(r[6]==='H'){badge=`<span class="badge H">En hoja · línea ${r[7]} · ${esc(r[8])}${r[9]?' · pareja '+esc(r[9]):''}</span>`;
+      tell=`Anotar: <b>${esc(r[0])}</b>${r[3]?' · serie '+esc(r[3]):''} — está en la línea ${r[7]} (${esc(r[4])})`;}
+    else if(r[6]==='Z'){badge=`<span class="badge Z">Sin stock en sistema · ${esc(r[5])}</span>`;tell=`Anotar como no listado: <b>${esc(r[0])}</b> ${esc(r[1])}`;}
+    else{badge=`<span class="badge N">No se cuenta · ${esc(r[5])}</span>`;tell=`Anotar como no listado: <b>${esc(r[0])}</b> ${esc(r[1])} · consultar con el bodeguero`;}
+    return `<div class="card"><button class="copy" data-i="${i}">Copiar</button>
+      <div class="code">${esc(r[0])||'(sin código)'}</div><div class="desc">${esc(r[1])}</div>
+      <div class="meta">${r[2]?'Alterno: <b>'+esc(r[2])+'</b> · ':''}${r[3]?'Serie: <b>'+esc(r[3])+'</b> · ':''}Ubicación: <b>${esc(r[4])}</b></div>
+      ${badge}<div class="tell">${tell}</div></div>`;}).join('');
+}
+document.getElementById('q').addEventListener('input',search);
+document.getElementById('clr').addEventListener('click',()=>{const q=document.getElementById('q');q.value='';q.focus();search();});
+document.getElementById('f').addEventListener('click',e=>{const c=e.target.closest('.chip');if(!c)return;filt=c.dataset.f;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));search();});
+document.getElementById('res').addEventListener('click',async e=>{const b=e.target.closest('.copy');if(!b)return;const r=D[+b.dataset.i];
+  const txt=[r[0],r[1],r[3]?'serie '+r[3]:'',r[7]?'línea '+r[7]:'',r[4]].filter(Boolean).join(' · ');
+  try{await navigator.clipboard.writeText(txt);b.textContent='Copiado';}catch(_){b.textContent='No se pudo';}setTimeout(()=>b.textContent='Copiar',1500);});
+kvGet('catalogo').then(c=>{if(c&&c.rows&&c.rows.length)setData(c);else document.getElementById('load').hidden=false;});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script></body></html>

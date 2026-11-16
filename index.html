@@ -19,6 +19,7 @@ header h1{font-size:16px;margin:0;font-weight:600}
 header .meta{font-size:12px;opacity:.8}
 nav{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
 nav button{background:transparent;color:#cfd8ea;border:0;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:14px}
+nav a.navlink{color:#cfd8ea;text-decoration:none;padding:7px 12px;border-radius:6px;font-size:14px;border:1px solid rgba(255,255,255,.25)}
 nav button.on{background:#fff;color:#14213d;font-weight:600}
 main{padding:16px;max-width:1300px;margin:0 auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
@@ -99,6 +100,7 @@ body:not(.cont) .cont-only{display:none!important}
     <button data-v="nolist" class="sup-only">No listados</button>
     <button data-v="hojas" class="sup-only">Hojas de conteo</button>
     <button data-v="resumen" class="sup-only">Diferencias y exportar</button>
+    <a class="navlink" href="buscador.html">Buscador SVF</a>
     <button data-v="datos"><span class="sup-only">Datos</span><span class="cont-only">Enviar / cargar</span></button>
   </nav>
 </header>
