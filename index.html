@@ -306,6 +306,7 @@ body:not(.cont) .cont-only{display:none!important}
       <button class="b p" id="bkDown">Descargar respaldo</button>
       <label class="b">Restaurar respaldo <input type="file" id="bkIn" accept=".json" class="hide"></label>
       <span class="grow"></span>
+      <button class="b d" id="wipeCounts">Borrar solo conteos</button>
       <button class="b d" id="wipe">Borrar todo</button>
     </div>
     <div id="bkInfo" class="small mut" style="margin-top:8px"></div>
@@ -593,6 +594,7 @@ $('#demoBtn').onclick=()=>{const rnd=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 function rDatos(){fillSync();$('#bkInfo').textContent=S.lines.length?`${S.lines.length} líneas, ${Object.keys(S.counts).length} conteos, ${S.extras.length} no listados.`+(S.meta.demo?' (Datos de prueba)':'')+(S.meta.importedAt?` Importado: ${new Date(S.meta.importedAt).toLocaleString('es-EC')}.`:''):'Sin datos.'}
 $('#bkDown').onclick=()=>{const clean=JSON.stringify(S,(k,v)=>k==='_h'||k==='_t'?undefined:v);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([clean],{type:'application/json'}));a.download=`respaldo_inventario_${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
 $('#bkIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.lines))throw new Error('formato no válido');if(!confirm('Esto reemplaza los datos actuales con el respaldo. ¿Continuar?'))return;S={lines:d.lines,counts:d.counts||{},extras:d.extras||[],locs:d.locs||{},meta:d.meta||{}};save();toast('Respaldo restaurado');render()}catch(err){alertBox('Respaldo no válido: '+err.message)}e.target.value=''};
+$('#wipeCounts').onclick=()=>{if(confirm('¿Borrar los conteos, no listados y ubicaciones cerradas? Se mantienen los productos y los paquetes ya enviados siguen sirviendo.')&&confirm('¿Seguro? No se puede deshacer.')){S.counts={};S.extras=[];S.locs={};S.xc={};delete S.meta.lastSent;delete S.meta.lastEdit;save();render();toast('Conteos borrados')}};
 $('#wipe').onclick=()=>{if(confirm('¿Borrar todos los datos y conteos de este navegador? No se puede deshacer.')&&confirm('¿Seguro? Descarga un respaldo antes.')){S={lines:[],counts:{},extras:[],locs:{},meta:{}};save();render()}};
 
 /* ========= Celulares: paquete, envío y unión ========= */
