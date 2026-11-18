@@ -98,6 +98,7 @@ body:not(.cont) .cont-only{display:none!important}
     <button data-v="buscar">Buscar</button>
     <button data-v="conteo">Conteo por ubicación</button>
     <button data-v="nolist" class="sup-only">No listados</button>
+    <button data-v="repartir" class="sup-only">Repartir perchas</button>
     <button data-v="hojas" class="sup-only">Hojas de conteo</button>
     <button data-v="resumen" class="sup-only">Diferencias y exportar</button>
     <a class="navlink" href="buscador.html">Buscador SVF</a>
@@ -159,6 +160,27 @@ body:not(.cont) .cont-only{display:none!important}
     <div class="row" style="margin-top:8px"><select id="nlFilter"><option value="pend">Pendientes</option><option value="ident">Identificados</option><option value="">Todos</option></select></div>
   </div>
   <div class="card"><div class="scroll"><table id="nlTbl"></table></div></div>
+</section>
+
+<!-- REPARTIR -->
+<section id="v-repartir" class="view hide">
+  <div class="card">
+    <h2>Repartir perchas entre los equipos</h2>
+    <div class="small mut">Divide las ubicaciones elegidas en bloques seguidos con casi la misma cantidad de líneas. Si una percha es grande, se reparte entre varios equipos por niveles.</div>
+    <div class="row" style="margin-top:10px">
+      <label class="grow">Perchas o ubicaciones <input id="rpFilter" class="grow" style="width:100%" placeholder="Ej. 001,002,003,004,005,017 (vacío = todas las no cerradas)"></label>
+      <label>Equipos <input type="number" id="rpN" value="4" min="1" max="12"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="grow">Nombres de los equipos (uno por línea, opcional)<textarea id="rpNames" rows="3" style="width:100%" placeholder="Equipo 1&#10;Equipo 2&#10;Equipo 3&#10;Equipo 4"></textarea></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="small"><input type="checkbox" id="rpOnlyPend" checked> Solo ubicaciones no cerradas</label>
+      <span class="grow"></span>
+      <button class="b p" id="rpCalc">Calcular reparto</button>
+    </div>
+  </div>
+  <div class="card" id="rpOut"><div class="mut small">Elige las perchas y el número de equipos, y pulsa Calcular reparto.</div></div>
 </section>
 
 <!-- HOJAS -->
@@ -337,7 +359,7 @@ const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).sli
 /* Código corto de ubicación: EC01/Stock/003-A04 -> 3A4 */
 function shortLoc(l){const m=String(l).match(/(\d{1,3})-?([A-Za-z])0*(\d{1,2})\s*$/);return m?(parseInt(m[1],10)+m[2].toUpperCase()+parseInt(m[3],10)):''}
 function locLabel(l){const s=shortLoc(l);return s?s:String(l).split('/').slice(-1)[0]}
-function lineKey(l){return [l.loc,l.code||l.name,l.lot||''].join('¦')}
+function lineKey(l){return l.line?'L'+l.line:[l.loc,l.code||l.name,l.lot||''].join('¦')}
 function hay(l){if(!l._h){l._h=norm([l.loc,locLabel(l.loc),l.code,l.name,l.lot,l.barcode].join(' '));l._t=tight([l.code,l.lot,l.barcode,locLabel(l.loc)].join(' '))}return l}
 
 /* ========= Navegación ========= */
@@ -346,7 +368,7 @@ function show(v){view=v;document.querySelectorAll('.view').forEach(x=>x.classLis
 $('#nav').onclick=e=>{const b=e.target.closest('[data-v]');if(b){curLoc=null;show(b.dataset.v)}};
 function applyRole(){const c=S.meta.role==='cont';document.body.classList.toggle('cont',c);document.querySelectorAll('input[name=role]').forEach(r=>r.checked=r.value===(S.meta.role||'sup'));$('#rolePair').value=S.meta.pair||'';const pend=pendingSend();$('#roleBar').textContent=`Modo contador · ${S.meta.pair||'sin nombre de pareja'} · `+(syncOn()?(pend?`${pend} cambio(s) por subir${syncState.err?' (sin conexión, se reintenta)':''}`:`todo subido${S.meta.syncedAt?' '+new Date(S.meta.syncedAt).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}):''}`):`${pend} cambio(s) sin enviar`);
   if($('#syncBarTxt'))$('#syncBarTxt').textContent=syncOn()?(S.meta.pulledAt?`Conteos de la nube actualizados a las ${new Date(S.meta.pulledAt).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})} · se actualiza solo cada 2 minutos.`:'Sincronización configurada.'):'Sin sincronización automática (configúrala en Datos).';if(c){$('#qShowQty').checked=false;$('#locShowSys').checked=false}}
-function render(){applyRole();hdr();({buscar:rSearch,conteo:rConteo,nolist:rNoList,hojas:rHojas,resumen:rResumen,datos:rDatos})[view]()}
+function render(){applyRole();hdr();({buscar:rSearch,conteo:rConteo,nolist:rNoList,repartir:rRepartir,hojas:rHojas,resumen:rResumen,datos:rDatos})[view]()}
 function hdr(){const n=S.lines.length;const locs=allLocs();const closed=locs.filter(l=>locSt(l)==='cerr').length;$('#hdrMeta').textContent=n?`${n.toLocaleString('es-EC')} líneas · ${locs.length} ubicaciones · ${closed} cerradas`+(S.meta.savedAt?` · guardado ${new Date(S.meta.savedAt).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})}`:''):'Sin datos cargados: ve a Datos'}
 
 /* ========= Búsqueda ========= */
@@ -377,7 +399,7 @@ function rConteo(){if(curLoc){rLocDetail();return}$('#locPicker').classList.remo
   const f=norm($('#locFilter').value),sf=$('#locStatusFilter').value;const by={};S.lines.forEach(l=>{(by[l.loc]=by[l.loc]||[]).push(l)});
   const locs=allLocs().filter(l=>(!f||norm(l).includes(f)||norm(locLabel(l)).includes(f))&&(!sf||locSt(l)===sf));
   $('#locList').innerHTML=locs.length?locs.map(l=>{const ls=by[l]||[];const done=ls.filter(x=>finalQty(S.counts[x.id])!=null).length;const st=locSt(l);const pct=ls.length?Math.round(done*100/ls.length):0;
-    return `<button class="locbtn" data-open="${esc(l)}"><b>${esc(locLabel(l))}</b><small>${esc(l)}</small><div class="row small" style="justify-content:space-between;margin-top:4px"><span class="chip st-${st}">${stName[st]}</span><span class="mut">${done}/${ls.length}</span></div><div class="bar"><i style="width:${pct}%"></i></div></button>`}).join(''):'<div class="mut">No hay ubicaciones. Carga datos en la pestaña Datos.</div>'}
+    return `<button class="locbtn" data-open="${esc(l)}"><b>${esc(locLabel(l))}</b><small>${esc(l)}</small><div class="row small" style="justify-content:space-between;margin-top:4px"><span class="chip st-${st}">${stName[st]}</span><span class="mut">${S.meta.asig&&S.meta.asig[l]&&S.meta.role!=='cont'?esc(S.meta.asig[l])+' · ':''}${done}/${ls.length}</span></div><div class="bar"><i style="width:${pct}%"></i></div></button>`}).join(''):'<div class="mut">No hay ubicaciones. Carga datos en la pestaña Datos.</div>'}
 $('#locFilter').oninput=rConteo;$('#locStatusFilter').onchange=rConteo;
 $('#locList').onclick=e=>{const b=e.target.closest('[data-open]');if(b)openLoc(b.dataset.open)};
 let curLoc=null;
@@ -397,7 +419,7 @@ function rLocDetail(){$('#locPicker').classList.add('hide');$('#locDetail').clas
     (sys?`<td class="n">${fmt(l.qty)}</td><td class="n ${d>0?'pos':d<0?'neg':''}">${d==null?'':(d>0?'+':'')+fmt(d)}</td>`:'')+'</tr>'}).join('');
   const phone=S.meta.role==='cont'||matchMedia('(max-width:700px)').matches;$('#locWrap').classList.toggle('hide',phone);$('#locCards').classList.toggle('hide',!phone);
   if(phone){$('#locTbl').innerHTML='';$('#locCards').innerHTML=ls.map((l,i)=>{const c=S.counts[l.id]||{};const fin=finalQty(c);const d=fin!=null&&l.qty!=null?fin-l.qty:null;
-    return `<div class="lc ${fin==null?'':'done'}"><div class="small mut">${i+1} · ${esc(l.code)}</div><div class="t">${esc(l.name)}${l.uom?` <span class="small mut">(${esc(l.uom)})</span>`:''}</div>${l.lot?`<div class="small">Serie: <b>${esc(l.lot)}</b></div>`:''}
+    return `<div class="lc ${fin==null?'':'done'}"><div class="small mut">${l.line?'Línea '+esc(l.line):i+1} · ${esc(l.code)}</div><div class="t">${esc(l.name)}${l.uom?` <span class="small mut">(${esc(l.uom)})</span>`:''}</div>${l.lot?`<div class="small">Serie: <b>${esc(l.lot)}</b></div>`:''}
     <div class="r"><label class="small">Conteo<br><input type="number" inputmode="decimal" step="any" min="0" data-id="${l.id}" data-f="q1" value="${c.q1??''}" ${closed?'disabled':''}></label>${anyRec||sys?`<label class="small">Recuento<br><input type="number" inputmode="decimal" step="any" min="0" data-id="${l.id}" data-f="q2" value="${c.q2??''}" ${closed?'disabled':''}></label>`:''}${sys?`<span class="small">Sistema ${fmt(l.qty)} · Dif. <b class="${d>0?'pos':d<0?'neg':''}">${d==null?'':fmt(d)}</b></span>`:''}</div>
     <div class="r">${l.lot?`<input data-id="${l.id}" data-f="lotRead" value="${esc(c.lotRead||'')}" placeholder="Serie leída en caja, si no coincide" class="grow" ${closed?'disabled':''}>`:''}<input data-id="${l.id}" data-f="obs" value="${esc(c.obs||'')}" placeholder="Observación" class="grow" ${closed?'disabled':''}></div></div>`}).join('')||'<div class="mut">Sin productos esperados en esta ubicación.</div>'}
   const ex=S.extras.filter(x=>x.loc===loc);$('#locExtrasCard').classList.toggle('hide',!ex.length);
@@ -435,18 +457,43 @@ $('#nlTbl').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.
 function nlSearch(id,q){const seen=new Set();const res=search(q,200).filter(l=>{const k=l.code||l.name;if(seen.has(k))return false;seen.add(k);return true}).slice(0,12);
   document.querySelector(`[data-nlres="${id}"]`).innerHTML=res.length?'<table class="small" style="margin-top:4px">'+res.map(l=>`<tr><td><b>${hl(l.code,q)}</b></td><td>${hl(l.name,q)}</td><td class="mut">${esc(locLabel(l.loc))}</td><td><button class="b s p" data-pick="${l.id}" data-x="${id}">Es este</button></td></tr>`).join('')+'</table>':'<div class="small mut">Sin resultados. Prueba con otra palabra o parte del código.</div>'}
 
+/* ========= Repartir perchas ========= */
+function rpLocs(){const raw=$('#rpFilter').value.split(/[,;\s]+/).map(norm).filter(Boolean);const by={};S.lines.forEach(l=>{(by[l.loc]=by[l.loc]||[]).push(l)});
+  return Object.keys(by).sort((a,b)=>a.localeCompare(b,'es',{numeric:true})).filter(loc=>{if($('#rpOnlyPend').checked&&locSt(loc)==='cerr')return false;if(!raw.length)return true;const nl=norm(loc),lb=norm(locLabel(loc));
+    return raw.some(t=>/^\d{1,3}$/.test(t)?new RegExp('/0*'+parseInt(t,10)+'-').test(nl)||new RegExp('^'+parseInt(t,10)+'[a-z]').test(lb):nl.includes(t)||lb.includes(t))}).map(loc=>({loc,n:by[loc].length}))}
+/* Partición en bloques seguidos que minimiza el bloque más grande */
+function partir(w,k){const n=w.length;k=Math.max(1,Math.min(k,n));const P=[0];w.forEach(x=>P.push(P[P.length-1]+x));const INF=1e15;
+  const D=Array.from({length:k+1},()=>new Array(n+1).fill(INF)),C=Array.from({length:k+1},()=>new Array(n+1).fill(0));D[0][0]=0;
+  for(let j=1;j<=k;j++)for(let i=1;i<=n;i++)for(let t=j-1;t<i;t++){const v=Math.max(D[j-1][t],P[i]-P[t]);if(v<D[j][i]){D[j][i]=v;C[j][i]=t}}
+  const cuts=[];let i=n;for(let j=k;j>0;j--){const t=C[j][i];cuts.unshift([t,i]);i=t}return cuts}
+let RP=null;
+function rRepartir(){if(!S.lines.length){$('#rpOut').innerHTML='<div class="mut small">Carga primero los datos en la pestaña Datos.</div>';return}if(RP)rpShow()}
+$('#rpCalc').onclick=()=>{const locs=rpLocs();if(!locs.length){toast('No hay ubicaciones con ese filtro');return}const k=Math.max(1,parseInt($('#rpN').value)||1);
+  const names=$('#rpNames').value.split('\n').map(x=>x.trim()).filter(Boolean);const cuts=partir(locs.map(x=>x.n),k);
+  RP=cuts.map(([a,b],i)=>({team:names[i]||('Equipo '+(i+1)),locs:locs.slice(a,b)}));S.meta.asig=S.meta.asig||{};RP.forEach(t=>t.locs.forEach(x=>S.meta.asig[x.loc]=t.team));save();rpShow()};
+function rpShow(){const tot=RP.reduce((a,t)=>a+t.locs.reduce((s,x)=>s+x.n,0),0);
+  $('#rpOut').innerHTML=`<div class="small mut" style="margin-bottom:8px">${tot.toLocaleString('es-EC')} líneas en ${RP.reduce((a,t)=>a+t.locs.length,0)} ubicaciones, repartidas en ${RP.length} equipos.</div><table><tr><th>Equipo</th><th>Desde</th><th>Hasta</th><th class="n">Ubicaciones</th><th class="n">Líneas</th><th>Perchas</th><th></th></tr>`+
+  RP.map((t,i)=>{const n=t.locs.reduce((s,x)=>s+x.n,0);const per=[...new Set(t.locs.map(x=>{const m=x.loc.match(/\/(\d{3})-/);return m?m[1]:locLabel(x.loc)}))].join(', ');
+    return `<tr><td><b>${esc(t.team)}</b></td><td>${esc(locLabel(t.locs[0].loc))}</td><td>${esc(locLabel(t.locs[t.locs.length-1].loc))}</td><td class="n">${t.locs.length}</td><td class="n"><b>${n}</b></td><td class="small">${esc(per)}</td><td><button class="b s p" data-rpsend="${i}">Enviar paquete</button> <button class="b s" data-rpprint="${i}">Imprimir hojas</button></td></tr>`}).join('')+'</table><div class="small mut" style="margin-top:8px">"Enviar paquete" abre WhatsApp (o descarga el Excel) con las ubicaciones de ese equipo. El contador lo carga en su celular y la app pone su nombre de equipo.</div>'}
+$('#rpOut').addEventListener('click',async e=>{const b=e.target.closest('[data-rpsend]');const pr=e.target.closest('[data-rpprint]');
+  if(b){const t=RP[+b.dataset.rpsend];const set=new Set(t.locs.map(x=>x.loc));const pkg=buildPackage('');pkg.lines=pkg.lines.filter(l=>set.has(l.loc));pkg.team=t.team;
+    for(const l of Object.keys(pkg.locs))if(!set.has(l))delete pkg.locs[l];const nm=`paquete_${t.team.normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w\-]+/g,'_')}_${stamp()}.json`;
+    const sh=await shareFile(pkg,nm);if(sh==='abort')return;if(!sh)downloadXlsx(pkg,nm);toast(`Paquete de ${t.team}: ${pkg.lines.length} líneas`)}
+  if(pr){const t=RP[+pr.dataset.rpprint];$('#shFilter').value='';printLocs(t.locs.map(x=>x.loc),t.team)}});
+
 /* ========= Hojas ========= */
 function sheetLocs(){const f=norm($('#shFilter').value);return allLocs().filter(l=>(!f||norm(l).includes(f)||norm(locLabel(l)).includes(f))&&(!$('#shOnlyPend').checked||locSt(l)!=='cerr'))}
 function rHojas(){const ls=sheetLocs();$('#shInfo').textContent=S.lines.length?`${ls.length} hoja(s) a imprimir.`:'Carga datos primero.'}
 $('#shFilter').oninput=rHojas;$('#shOnlyPend').onchange=rHojas;
-$('#shPrint').onclick=()=>{const ls=sheetLocs();if(!ls.length){toast('No hay ubicaciones para imprimir');return}const blank=Math.max(0,parseInt($('#shBlank').value)||0);
+$('#shPrint').onclick=()=>{const ls=sheetLocs();if(!ls.length){toast('No hay ubicaciones para imprimir');return}printLocs(ls,'')};
+function printLocs(ls,team){const blank=Math.max(0,parseInt($('#shBlank').value)||0);
   $('#print').innerHTML=ls.map(loc=>{const rows=locLines(loc);const hasLot=rows.some(l=>l.lot);return `<div class="sheet"><h4>Hoja de conteo · ${esc(locLabel(loc))} <span style="font-weight:normal">(${esc(loc)})</span></h4>
-  <div>Fecha: ____________ &nbsp; Pareja: ______________________________ &nbsp; Hoja impresa: ${today()}</div>
+  <div>Fecha: ____________ &nbsp; ${team?'Equipo: <b>'+esc(team)+'</b>':'Pareja: ______________________________'} &nbsp; Hoja impresa: ${today()}</div>
   <table style="width:100%;margin-top:3mm"><tr><th>#</th><th>Código</th><th>Descripción</th><th>Serie / lote</th><th>UdM</th><th style="width:22mm">Conteo</th><th style="width:22mm">Recuento</th>${hasLot?'<th style="width:32mm">Serie leída en caja</th>':''}<th style="width:40mm">Observación</th></tr>
-  ${rows.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc(l.lot)}</td><td>${esc(l.uom)}</td><td></td><td></td>${hasLot?'<td></td>':''}<td></td></tr>`).join('')}</table>
+  ${rows.map((l,i)=>`<tr><td>${l.line||i+1}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc(l.lot)}</td><td>${esc(l.uom)}</td><td></td><td></td>${hasLot?'<td></td>':''}<td></td></tr>`).join('')}</table>
   ${blank?`<div style="margin-top:3mm"><b>No listados</b> (productos encontrados aquí que no están arriba: anotar lo que dice la caja y tomar foto)</div><table class="blank" style="width:100%"><tr><th>Descripción / caja</th><th>Código en caja</th><th>Serie</th><th style="width:22mm">Cantidad</th></tr>${'<tr><td></td><td></td><td></td><td></td></tr>'.repeat(blank)}</table>`:''}
   <div class="sign"><div>Contó</div><div>Anotó</div><div>Supervisor</div></div></div>`}).join('');
-  setTimeout(()=>window.print(),50)};
+  setTimeout(()=>window.print(),50)}
 
 /* ========= Resumen, diferencias y exportación ========= */
 function diffs(){const out=[];for(const l of S.lines){if(locSt(l.loc)!=='cerr')continue;const fin=finalQty(S.counts[l.id]);if(fin==null)continue;const d=fin-(l.qty||0);if(Math.abs(d)>1e-9)out.push({l,fin,d,val:l.cost!=null?d*l.cost:null})}
@@ -471,12 +518,13 @@ $('#exOdoo').onclick=()=>{const from=$('#exFrom').value;const ok=l=>{const L=S.l
 $('#exDiff').onclick=()=>{const df=diffs();if(!df.length){toast('Sin diferencias');return}const rows=[['Ubicación','Código','Descripción','Serie','UdM','Sistema','Contado','Diferencia','Costo unitario','Valor diferencia','Tipo','Pareja']];
   df.forEach(r=>rows.push([r.l.loc,r.l.code,r.l.name,r.l.lot||'',r.l.uom||'',r.l.qty||0,r.fin,r.d,r.l.cost??'',r.val??'',r.extra?'No listado':(r.d>0?'Sobrante':'Faltante'),S.locs[r.l.loc]?.pair||'']));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,sheetFrom(rows,[28,16,40,18,8,10,10,10,12,14,12,22]),'Diferencias');dl(wb,`diferencias_${today()}.xlsx`)};
-$('#exAll').onclick=()=>{const rows=[['Ubicación','Estado','Pareja','Código','Descripción','Serie','Serie leída','UdM','Sistema','Conteo','Recuento','Final','Diferencia','Observación','Fecha registro']];
-  S.lines.forEach(l=>{const c=S.counts[l.id]||{};const fin=finalQty(c);rows.push([l.loc,stName[locSt(l.loc)],S.locs[l.loc]?.pair||'',l.code,l.name,l.lot||'',c.lotRead||'',l.uom||'',l.qty??'',c.q1??'',c.q2??'',fin??'',fin==null?'':fin-(l.qty||0),(c.obs||'')+(c.auto0?' [cerrado sin conteo = 0]':''),c.ts||''])});
+$('#exAll').onclick=()=>{const rows=[['N° línea','Ubicación','Estado','Pareja','Código','Descripción','Serie','Serie leída','UdM','Sistema','Conteo','Recuento','Final','Diferencia','Observación','Fecha registro']];
+  S.lines.forEach(l=>{const c=S.counts[l.id]||{};const fin=finalQty(c);rows.push([l.line||'',l.loc,stName[locSt(l.loc)],S.locs[l.loc]?.pair||'',l.code,l.name,l.lot||'',c.lotRead||'',l.uom||'',l.qty??'',c.q1??'',c.q2??'',fin??'',fin==null?'':fin-(l.qty||0),(c.obs||'')+(c.auto0?' [cerrado sin conteo = 0]':''),c.ts||''])});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,sheetFrom(rows),'Conteo');XLSX.utils.book_append_sheet(wb,sheetFrom([['Ubicación','Descripción','Código en caja','Serie','Cantidad','Vinculado a','Fecha']].concat(S.extras.map(x=>[x.loc,x.name,x.code,x.lot,x.qty,x.match?`${x.match.code} ${x.match.name}`:'',x.ts]))),'No listados');dl(wb,`detalle_conteo_${today()}.xlsx`)};
 
 /* ========= Importación ========= */
 const FIELDS=[
+ {k:'line',label:'N° línea del maestro (opcional)',pat:[/^n.{0,2}\s*l[ií]nea/,/^l[ií]nea$/]},
  {k:'loc',label:'Ubicación',req:true,pat:[/^ubicaci[oó]n$/,/location/,/ubicaci/]},
  {k:'prod',label:'Producto (como lo muestra Odoo)',pat:[/^producto$/,/^product$/,/^product_id/]},
  {k:'code',label:'Referencia interna / código',pat:[/referencia interna/,/internal ref/,/default_code/,/^c[oó]digo$/,/^referencia$/]},
@@ -497,7 +545,7 @@ function showMap(){$('#mapCard').classList.remove('hide');const used=new Set();
 $('#mapOk').onclick=()=>{const m={};document.querySelectorAll('[data-map]').forEach(s=>m[s.dataset.map]=+s.value);if(m.loc<0||m.qty<0){alertBox('Faltan columnas obligatorias: ubicación y cantidad');return}if(m.prod<0&&m.code<0&&m.name<0){alertBox('Elige al menos producto, código o descripción');return}
   const g=(r,k)=>m[k]>=0?String(r[m[k]]??'').trim():'';const lines=[];
   for(const r of pendingRows){let prod=g(r,'prod'),code=g(r,'code'),name=g(r,'name');const mm=prod.match(/^\[([^\]]+)\]\s*(.*)$/);if(mm){if(!code)code=mm[1].trim();if(!name)name=mm[2].trim()}else if(prod&&!name)name=prod;
-    const loc=g(r,'loc');if(!loc)continue;lines.push({loc,prod:prod||'',code,name,lot:g(r,'lot'),barcode:g(r,'barcode'),uom:g(r,'uom'),qty:num(m.qty>=0?r[m.qty]:null)??0,cost:m.cost>=0?num(r[m.cost]):null})}
+    const loc=g(r,'loc');if(!loc)continue;lines.push({line:g(r,'line').replace(/\.0$/,''),loc,prod:prod||'',code,name,lot:g(r,'lot'),barcode:g(r,'barcode'),uom:g(r,'uom'),qty:num(m.qty>=0?r[m.qty]:null)??0,cost:m.cost>=0?num(r[m.cost]):null})}
   importLines(lines,document.querySelector('input[name=mode]:checked').value)};
 function importLines(lines,mode){if(mode==='replace'){if(S.lines.length&&!confirm('Esto borra los datos y conteos actuales. ¿Continuar? (Descarga un respaldo antes si lo necesitas)'))return;S={lines:[],counts:{},extras:[],locs:{},meta:{}}}
   const idx=new Map(S.lines.map(l=>[lineKey(l),l]));let add=0,upd=0;
@@ -540,16 +588,16 @@ function makePdf(obj,title,summary){const lines=[title,'',...summary].slice(0,55
   const x=out.length;out+='xref\n0 '+(objs.length+1)+'\n0000000000 65535 f \n'+offs.map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size '+(objs.length+1)+' /Root 1 0 R >>\nstartxref\n'+x+'\n%%EOF\n';return out}
 function pdfSummary(obj){if(obj.type==='conteo'){const by={};const ids=new Map(S.lines.map(l=>[l.id,l]));Object.keys(obj.counts).forEach(id=>{const l=ids.get(id);const k=l?locLabel(l.loc):'?';by[k]=(by[k]||0)+1});
     return [`Pareja: ${obj.pair}`,`Enviado: ${new Date(obj.exportedAt).toLocaleString('es-EC')}`,`Lineas contadas: ${Object.keys(obj.counts).length}`,`No listados: ${obj.extras.length}`,'','Por ubicacion:',...Object.entries(by).map(([k,n])=>`  ${k}: ${n} lineas`),'','Para cargarlo: app de inventario > Datos > Cargar conteos de parejas.']}
-  return [`Paquete del supervisor`,`Creado: ${new Date(obj.createdAt).toLocaleString('es-EC')}`,`Lineas: ${obj.lines.length}`,'','Para cargarlo: app de inventario > Enviar / cargar > Cargar el paquete del supervisor.']}
+  return [`Paquete del supervisor${obj.team?' - '+obj.team:''}`,`Creado: ${new Date(obj.createdAt).toLocaleString('es-EC')}`,`Lineas: ${obj.lines.length}`,'','Para cargarlo: app de inventario > Enviar / cargar > Cargar el paquete del supervisor.']}
 /* Excel legible + hoja _datos con el contenido exacto (en trozos, límite de celda 32.767) */
 const XLSX_MIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 function makeXlsx(obj){const wb=XLSX.utils.book_new();const ids=new Map(S.lines.map(l=>[l.id,l]));
-  if(obj.type==='conteo'){const rows=[['Ubicación','Código','Descripción','Serie','UdM','Conteo','Recuento','Serie leída','Observación','Pareja','Fecha']];
-    for(const [id,c] of Object.entries(obj.counts)){const l=ids.get(id)||{};rows.push([l.loc||'',l.code||'',l.name||'',l.lot||'',l.uom||'',c.q1??'',c.q2??'',c.lotRead||'',c.obs||'',obj.pair,c.ts||''])}
-    rows.splice(1,rows.length-1,...rows.slice(1).sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'es',{numeric:true})));
-    XLSX.utils.book_append_sheet(wb,sheetFrom(rows,[24,14,40,14,6,8,8,14,24,16,22]),'Conteo');
+  if(obj.type==='conteo'){const rows=[['N° línea','Ubicación','Código','Descripción','Serie','UdM','Conteo','Recuento','Serie leída','Observación','Pareja','Fecha']];
+    for(const [id,c] of Object.entries(obj.counts)){const l=ids.get(id)||{};rows.push([l.line||'',l.loc||'',l.code||'',l.name||'',l.lot||'',l.uom||'',c.q1??'',c.q2??'',c.lotRead||'',c.obs||'',obj.pair,c.ts||''])}
+    rows.splice(1,rows.length-1,...rows.slice(1).sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'es',{numeric:true})));
+    XLSX.utils.book_append_sheet(wb,sheetFrom(rows,[8,24,14,40,14,6,8,8,14,24,16,22]),'Conteo');
     XLSX.utils.book_append_sheet(wb,sheetFrom([['Ubicación','Descripción / caja','Código en caja','Serie','Cantidad','Tiene foto','Pareja','Fecha']].concat(obj.extras.map(x=>[x.loc,x.name,x.code,x.lot,x.qty,x.photo?'Sí':'No',x.pair||obj.pair,x.ts])),[24,36,16,14,9,9,16,22]),'No listados')}
-  else XLSX.utils.book_append_sheet(wb,sheetFrom([['Ubicación','Código','Descripción','Serie','UdM']].concat(obj.lines.map(l=>[l.loc,l.code,l.name,l.lot,l.uom])),[24,14,40,14,6]),'Productos');
+  else XLSX.utils.book_append_sheet(wb,sheetFrom([['N° línea','Ubicación','Código','Descripción','Serie','UdM']].concat(obj.lines.map(l=>[l.line||'',l.loc,l.code,l.name,l.lot,l.uom])),[8,24,14,40,14,6]),'Productos');
   const js=JSON.stringify(obj);const chunks=[['No modificar: datos para la app de inventario']];for(let k=0;k<js.length;k+=30000)chunks.push([js.slice(k,k+30000)]);
   const ws=XLSX.utils.aoa_to_sheet(chunks);XLSX.utils.book_append_sheet(wb,ws,'_datos');wb.Workbook={Sheets:wb.SheetNames.map(n=>({name:n,Hidden:n==='_datos'?1:0}))};
   return XLSX.write(wb,{bookType:'xlsx',type:'array'})}
@@ -562,14 +610,14 @@ function downloadXlsx(obj,name){const a=document.createElement('a');a.href=URL.c
 async function readPayload(f){const head=new Uint8Array(await f.slice(0,4).arrayBuffer());if(head[0]===0x50&&head[1]===0x4b){const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});const ws=wb.Sheets['_datos'];if(!ws)throw new Error('el Excel no tiene la hoja de datos de la app');const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});return JSON.parse(rows.slice(1).map(r=>r[0]).join(''))}const t=await f.text();const m=t.match(/%INVDATA:([A-Za-z0-9+\/=]+)/);if(m)return JSON.parse(b64dec(m[1]));const s=t.indexOf('{');if(s<0)throw new Error('el archivo no tiene datos de la app');return JSON.parse(t.slice(s,t.lastIndexOf('}')+1))}
 function download(obj,name){const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);return blob}
 const stamp=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
-function buildPackage(filter){const f=norm(filter||'');const lines=S.lines.filter(l=>!f||norm(l.loc).includes(f)||norm(locLabel(l.loc)).includes(f)).map(l=>({id:l.id,loc:l.loc,prod:l.prod,code:l.code,name:l.name,lot:l.lot,barcode:l.barcode,uom:l.uom,qty:null,cost:null}));const locs={};lines.forEach(l=>{if(S.locs[l.loc])locs[l.loc]={status:S.locs[l.loc].status,pair:S.locs[l.loc].pair||'',reopenedAt:S.locs[l.loc].reopenedAt||null}});return {type:'paquete',v:1,createdAt:new Date().toISOString(),lines,locs}}
-$('#pkgOut').onclick=async()=>{const f=norm($('#pkgFilter').value);const lines=S.lines.filter(l=>!f||norm(l.loc).includes(f)||norm(locLabel(l.loc)).includes(f)).map(l=>({id:l.id,loc:l.loc,prod:l.prod,code:l.code,name:l.name,lot:l.lot,barcode:l.barcode,uom:l.uom,qty:null,cost:null}));
+function buildPackage(filter){const f=norm(filter||'');const lines=S.lines.filter(l=>!f||norm(l.loc).includes(f)||norm(locLabel(l.loc)).includes(f)).map(l=>({id:l.id,line:l.line||'',loc:l.loc,prod:l.prod,code:l.code,name:l.name,lot:l.lot,barcode:l.barcode,uom:l.uom,qty:null,cost:null}));const locs={};lines.forEach(l=>{if(S.locs[l.loc])locs[l.loc]={status:S.locs[l.loc].status,pair:S.locs[l.loc].pair||'',reopenedAt:S.locs[l.loc].reopenedAt||null}});return {type:'paquete',v:1,createdAt:new Date().toISOString(),lines,locs}}
+$('#pkgOut').onclick=async()=>{const f=norm($('#pkgFilter').value);const lines=S.lines.filter(l=>!f||norm(l.loc).includes(f)||norm(locLabel(l.loc)).includes(f)).map(l=>({id:l.id,line:l.line||'',loc:l.loc,prod:l.prod,code:l.code,name:l.name,lot:l.lot,barcode:l.barcode,uom:l.uom,qty:null,cost:null}));
   if(!lines.length){toast('No hay ubicaciones con ese filtro');return}const locs={};lines.forEach(l=>{if(S.locs[l.loc])locs[l.loc]={status:S.locs[l.loc].status,pair:S.locs[l.loc].pair||'',reopenedAt:S.locs[l.loc].reopenedAt||null}});
   {const obj={type:'paquete',v:1,createdAt:new Date().toISOString(),lines,locs},nm=`paquete_conteo_${stamp()}.json`;const sh=await shareFile(obj,nm);if(sh==='abort')return;if(!sh)downloadXlsx(obj,nm)}toast(`Paquete con ${lines.length} líneas`)};
 function applyPackage(d){if(!d||d.type!=='paquete'||!Array.isArray(d.lines))throw new Error('no es un paquete del supervisor');
   const ids=new Set(d.lines.map(l=>l.id));const kept=Object.keys(S.counts).filter(k=>ids.has(k)).length;S.lines=d.lines;for(const k in S.counts)if(!ids.has(k))delete S.counts[k];
   for(const [l,v] of Object.entries(d.locs||{})){const L=S.locs[l]=S.locs[l]||{};if(v.status==='rec'&&(v.reopenedAt||'')>(L.closedAt||'')){L.status='rec';L.closedAt=null;L.reopenedAt=v.reopenedAt}if(v.pair&&!L.pair)L.pair=v.pair}
-  S.meta.role='cont';S.meta.pkgAt=d.createdAt;save();toast(`Paquete cargado: ${d.lines.length} líneas`+(kept?`, ${kept} conteos conservados`:''),3500);render()}
+  S.meta.role='cont';S.meta.pkgAt=d.createdAt;if(d.team)S.meta.pair=d.team;save();toast(`Paquete cargado${d.team?' para '+d.team:''}: ${d.lines.length} líneas`+(kept?`, ${kept} conteos conservados`:''),3500);render()}
 $('#pkgIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{applyPackage(await readPayload(f))}catch(err){alertBox('Archivo no válido: '+err.message)}e.target.value=''};
 $('#sendCounts').onclick=async()=>{if(!S.meta.pair){alertBox('Escribe primero el nombre de tu pareja arriba');$('#rolePair').focus();return}
   const counts={};const byId=new Map(S.lines.map(l=>[l.id,l]));for(const [k,c] of Object.entries(S.counts)){if(!c.ts)continue;const l=byId.get(k);const {dirty,...rest}=c;counts[k]={...rest,k:l?lineKey(l):''}}
