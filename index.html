@@ -169,13 +169,17 @@ body:not(.cont) .cont-only{display:none!important}
     <div class="small mut">Divide las ubicaciones elegidas en bloques seguidos con casi la misma cantidad de líneas. Si una percha es grande, se reparte entre varios equipos por niveles.</div>
     <div class="row" style="margin-top:10px">
       <label class="grow">Perchas o ubicaciones <input id="rpFilter" class="grow" style="width:100%" placeholder="Ej. 001,002,003,004,005,017 (vacío = todas las no cerradas)"></label>
-      <label>Equipos <input type="number" id="rpN" value="4" min="1" max="12"></label>
+      <label>Equipos para el reparto automático <input type="number" id="rpN" value="4" min="0" max="12"></label>
     </div>
     <div class="row" style="margin-top:10px">
-      <label class="grow">Nombres de los equipos (uno por línea, opcional)<textarea id="rpNames" rows="3" style="width:100%" placeholder="Equipo 1&#10;Equipo 2&#10;Equipo 3&#10;Equipo 4"></textarea></label>
+      <label class="grow">Asignación fija (opcional): un equipo por línea con sus perchas completas<textarea id="rpFixed" rows="2" style="width:100%" placeholder="Daniel = 017&#10;Equipo Ana = 005"></textarea></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="grow">Nombres de los equipos del reparto automático (uno por línea, opcional)<textarea id="rpNames" rows="3" style="width:100%" placeholder="Equipo 1&#10;Equipo 2&#10;Equipo 3&#10;Equipo 4"></textarea></label>
     </div>
     <div class="row" style="margin-top:10px">
       <label class="small"><input type="checkbox" id="rpOnlyPend" checked> Solo ubicaciones no cerradas</label>
+      <label class="small"><input type="checkbox" id="rpWhole"> No dividir perchas (cada percha completa a un solo equipo)</label>
       <span class="grow"></span>
       <button class="b p" id="rpCalc">Calcular reparto</button>
     </div>
@@ -471,7 +475,7 @@ function nlSearch(id,q){const seen=new Set();const res=search(q,200).filter(l=>{
   document.querySelector(`[data-nlres="${id}"]`).innerHTML=res.length?'<table class="small" style="margin-top:4px">'+res.map(l=>`<tr><td><b>${hl(l.code,q)}</b></td><td>${hl(l.name,q)}</td><td class="mut">${esc(l.lot||'')}</td><td class="mut">${esc(locLabel(l.loc))}${l.line?' · línea '+esc(l.line):''}</td><td><button class="b s p" data-pick="${l.id}" data-x="${id}">Es este</button></td></tr>`).join('')+'</table>':'<div class="small mut">Sin resultados. Prueba con otra palabra o parte del código.</div>'}
 
 /* ========= Repartir perchas ========= */
-function rpLocs(){const raw=$('#rpFilter').value.split(/[,;\s]+/).map(norm).filter(Boolean);const by={};S.lines.forEach(l=>{(by[l.loc]=by[l.loc]||[]).push(l)});
+function rpLocs(filter){const raw=(filter??$('#rpFilter').value).split(/[,;\s]+/).map(norm).filter(Boolean);const by={};S.lines.forEach(l=>{(by[l.loc]=by[l.loc]||[]).push(l)});
   return Object.keys(by).sort((a,b)=>a.localeCompare(b,'es',{numeric:true})).filter(loc=>{if($('#rpOnlyPend').checked&&locSt(loc)==='cerr')return false;if(!raw.length)return true;const nl=norm(loc),lb=norm(locLabel(loc));
     return raw.some(t=>/^\d{1,3}$/.test(t)?new RegExp('/0*'+parseInt(t,10)+'-').test(nl)||new RegExp('^'+parseInt(t,10)+'[a-z]').test(lb):nl.includes(t)||lb.includes(t))}).map(loc=>({loc,n:by[loc].length}))}
 /* Partición en bloques seguidos que minimiza el bloque más grande */
@@ -481,13 +485,19 @@ function partir(w,k){const n=w.length;k=Math.max(1,Math.min(k,n));const P=[0];w.
   const cuts=[];let i=n;for(let j=k;j>0;j--){const t=C[j][i];cuts.unshift([t,i]);i=t}return cuts}
 let RP=null;
 function rRepartir(){if(!S.lines.length){$('#rpOut').innerHTML='<div class="mut small">Carga primero los datos en la pestaña Datos.</div>';return}if(RP)rpShow()}
-$('#rpCalc').onclick=()=>{const locs=rpLocs();if(!locs.length){toast('No hay ubicaciones con ese filtro');return}const k=Math.max(1,parseInt($('#rpN').value)||1);
-  const names=$('#rpNames').value.split('\n').map(x=>x.trim()).filter(Boolean);const cuts=partir(locs.map(x=>x.n),k);
-  RP=cuts.map(([a,b],i)=>({team:names[i]||('Equipo '+(i+1)),locs:locs.slice(a,b)}));S.meta.asig=S.meta.asig||{};RP.forEach(t=>t.locs.forEach(x=>S.meta.asig[x.loc]=t.team));save();rpShow()};
+const perchaOf=loc=>{const m=String(loc).match(/\/(\d{3})-/);return m?m[1]:loc};
+$('#rpCalc').onclick=()=>{let locs=rpLocs();const fixed=[];
+  for(const ln of $('#rpFixed').value.split('\n')){const m=ln.match(/^\s*(.+?)\s*[=:]\s*(.+)$/);if(!m)continue;const mine=rpLocs(m[2]);if(!mine.length){toast(`No encontré ubicaciones para "${m[2]}"`);continue}const set=new Set(mine.map(x=>x.loc));fixed.push({team:m[1],locs:mine,fixed:true});locs=locs.filter(x=>!set.has(x.loc))}
+  const k=Math.max(0,parseInt($('#rpN').value)||0);const names=$('#rpNames').value.split('\n').map(x=>x.trim()).filter(Boolean);let auto=[];
+  if(locs.length&&k>0){if($('#rpWhole').checked){const groups=[];locs.forEach(x=>{const g=perchaOf(x.loc);const last=groups[groups.length-1];if(last&&last.g===g){last.locs.push(x);last.n+=x.n}else groups.push({g,locs:[x],n:x.n})});
+      auto=partir(groups.map(g=>g.n),k).map(([a,b],i)=>({team:names[i]||('Equipo '+(i+1)),locs:groups.slice(a,b).flatMap(g=>g.locs)}))}
+    else auto=partir(locs.map(x=>x.n),k).map(([a,b],i)=>({team:names[i]||('Equipo '+(i+1)),locs:locs.slice(a,b)}))}
+  else if(locs.length&&!fixed.length){toast('Indica cuántos equipos o una asignación fija');return}
+  RP=fixed.concat(auto);if(!RP.length){toast('No hay ubicaciones con ese filtro');return}if(locs.length&&!k)toast(`${locs.reduce((a,x)=>a+x.n,0)} líneas quedaron sin equipo: sube el número de equipos`,4000);S.meta.asig=S.meta.asig||{};RP.forEach(t=>t.locs.forEach(x=>S.meta.asig[x.loc]=t.team));save();rpShow()};
 function rpShow(){const tot=RP.reduce((a,t)=>a+t.locs.reduce((s,x)=>s+x.n,0),0);
   $('#rpOut').innerHTML=`<div class="small mut" style="margin-bottom:8px">${tot.toLocaleString('es-EC')} líneas en ${RP.reduce((a,t)=>a+t.locs.length,0)} ubicaciones, repartidas en ${RP.length} equipos.</div><table><tr><th>Equipo</th><th>Desde</th><th>Hasta</th><th class="n">Ubicaciones</th><th class="n">Líneas</th><th>Perchas</th><th></th></tr>`+
   RP.map((t,i)=>{const n=t.locs.reduce((s,x)=>s+x.n,0);const per=[...new Set(t.locs.map(x=>{const m=x.loc.match(/\/(\d{3})-/);return m?m[1]:locLabel(x.loc)}))].join(', ');
-    return `<tr><td><b>${esc(t.team)}</b></td><td>${esc(locLabel(t.locs[0].loc))}</td><td>${esc(locLabel(t.locs[t.locs.length-1].loc))}</td><td class="n">${t.locs.length}</td><td class="n"><b>${n}</b></td><td class="small">${esc(per)}</td><td><button class="b s p" data-rpsend="${i}">Enviar paquete</button> <button class="b s" data-rpprint="${i}">Imprimir hojas</button></td></tr>`}).join('')+'</table><div class="small mut" style="margin-top:8px">"Enviar paquete" abre WhatsApp (o descarga el Excel) con las ubicaciones de ese equipo. El contador lo carga en su celular y la app pone su nombre de equipo.</div>'}
+    return `<tr><td><b>${esc(t.team)}</b>${t.fixed?' <span class="chip">fija</span>':''}</td><td>${esc(locLabel(t.locs[0].loc))}</td><td>${esc(locLabel(t.locs[t.locs.length-1].loc))}</td><td class="n">${t.locs.length}</td><td class="n"><b>${n}</b></td><td class="small">${esc(per)}</td><td><button class="b s p" data-rpsend="${i}">Enviar paquete</button> <button class="b s" data-rpprint="${i}">Imprimir hojas</button></td></tr>`}).join('')+'</table><div class="small mut" style="margin-top:8px">"Enviar paquete" abre WhatsApp (o descarga el Excel) con las ubicaciones de ese equipo. El contador lo carga en su celular y la app pone su nombre de equipo.</div>'}
 $('#rpOut').addEventListener('click',async e=>{const b=e.target.closest('[data-rpsend]');const pr=e.target.closest('[data-rpprint]');
   if(b){const t=RP[+b.dataset.rpsend];const set=new Set(t.locs.map(x=>x.loc));const pkg=buildPackage('');pkg.lines=pkg.lines.filter(l=>set.has(l.loc));pkg.team=t.team;pkg.xc=pkgXc(pkg.lines);
     for(const l of Object.keys(pkg.locs))if(!set.has(l))delete pkg.locs[l];const nm=`paquete_${t.team.normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w\-]+/g,'_')}_${stamp()}.json`;
