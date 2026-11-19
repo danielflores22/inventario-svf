@@ -147,7 +147,7 @@ body:not(.cont) .cont-only{display:none!important}
       </div>
       <div class="small mut" style="margin-top:6px">Ingresa lo anotado en la hoja. Enter pasa a la siguiente línea. Si hay recuento, se usa el segundo conteo como definitivo.</div>
     </div>
-    <div class="card"><div class="scroll" id="locWrap"><table id="locTbl"></table></div><div id="locCards" class="hide"></div></div>
+    <div class="card"><div class="row" style="margin-bottom:8px"><input id="locQ" type="search" class="grow big" placeholder="Buscar en esta ubicación: código, descripción o serie" autocomplete="off"><button class="b" id="locQClear">✕ Quitar filtro</button></div><div id="locQInfo" class="small mut" style="margin-bottom:6px"></div><div class="scroll" id="locWrap"><table id="locTbl"></table></div><div id="locCards" class="hide"></div></div>
     <div class="card" id="locExtrasCard"><h3 style="margin-top:0">No listados encontrados en esta ubicación</h3><table id="locExtras"></table></div>
   </div>
 </section>
@@ -414,14 +414,16 @@ function rConteo(){if(curLoc){rLocDetail();return}$('#locPicker').classList.remo
 $('#locFilter').oninput=rConteo;$('#locStatusFilter').onchange=rConteo;
 $('#locList').onclick=e=>{const b=e.target.closest('[data-open]');if(b)openLoc(b.dataset.open)};
 let curLoc=null;
-function openLoc(loc){curLoc=loc;if(view!=='conteo'){view='conteo';document.querySelectorAll('.view').forEach(x=>x.classList.toggle('hide',x.id!=='v-conteo'));document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.v==='conteo'))}rLocDetail();window.scrollTo(0,0)}
+function openLoc(loc){curLoc=loc;$('#locQ').value='';if(view!=='conteo'){view='conteo';document.querySelectorAll('.view').forEach(x=>x.classList.toggle('hide',x.id!=='v-conteo'));document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.v==='conteo'))}rLocDetail();window.scrollTo(0,0)}
 $('#locBack').onclick=()=>{curLoc=null;rConteo()};
 function rLocDetail(){$('#locPicker').classList.add('hide');$('#locDetail').classList.remove('hide');const loc=curLoc;const st=locSt(loc);const sys=$('#locShowSys').checked;
   $('#locTitle').innerHTML=`${esc(locLabel(loc))} <span class="small mut">${esc(loc)}</span>`;$('#locChip').innerHTML=`<span class="chip st-${st}">${stName[st]}</span>`;
   $('#locPair').value=S.locs[loc]?.pair||(S.meta.role==='cont'?S.meta.pair||'':'');const closed=st==='cerr';$('#locClose').classList.toggle('hide',closed);$('#locReopen').classList.toggle('hide',!closed);
-  const ls=locLines(loc);const anyRec=ls.some(l=>S.counts[l.id]?.q2!=null)||st==='rec';
+  const allL=locLines(loc);const qw=norm($('#locQ').value).split(/\s+/).map(tight).filter(Boolean);const ls=qw.length?allL.filter(l=>{const h=tight([l.code,l.name,l.lot,l.prod,l.barcode,l.line].join(' '));return qw.every(w=>h.includes(w))}):allL;
+  $('#locQClear').classList.toggle('hide',!qw.length);$('#locQInfo').innerHTML=qw.length?(ls.length?`Mostrando ${ls.length} de ${allL.length} productos. Cuando termines, toca <b>Quitar filtro</b>.`:'Ese producto no está en esta ubicación. Búscalo en <b>Buscar</b> o regístralo como <b>No listado</b>.'):'';
+  const anyRec=allL.some(l=>S.counts[l.id]?.q2!=null)||st==='rec';
   $('#locTbl').innerHTML='<tr><th>#</th><th>Código</th><th>Descripción</th><th>Serie / lote</th><th class="n">Conteo</th>'+(anyRec||sys?'<th class="n">Recuento</th>':'')+'<th>Serie leída en caja</th><th>Obs.</th>'+(sys?'<th class="n">Sistema</th><th class="n">Dif.</th>':'')+'</tr>'+
-  ls.map((l,i)=>{const c=S.counts[l.id]||{};const fin=lineFinal(l);const xt=crossTxt(l.id);const d=fin!=null&&l.qty!=null?fin-l.qty:null;const cls=fin==null?'':(sys&&d?'diff':'done');
+  ls.map((l,i)=>{i=allL.indexOf(l);const c=S.counts[l.id]||{};const fin=lineFinal(l);const xt=crossTxt(l.id);const d=fin!=null&&l.qty!=null?fin-l.qty:null;const cls=fin==null?'':(sys&&d?'diff':'done');
     return `<tr class="${cls}"><td class="mut small">${i+1}</td><td>${esc(l.code)}</td><td>${esc(l.name)}${l.uom?` <span class="small mut">(${esc(l.uom)})</span>`:''}${xt?`<div class="small"><span class="chip st-cerr">Ya encontrado en ${esc(xt)}</span> no hace falta buscarlo aquí</div>`:''}</td><td>${esc(l.lot)}</td>
     <td class="n"><input type="number" step="any" min="0" data-id="${l.id}" data-f="q1" value="${c.q1??''}" ${closed?'disabled':''}></td>`+
     (anyRec||sys?`<td class="n"><input type="number" step="any" min="0" data-id="${l.id}" data-f="q2" value="${c.q2??''}" ${closed?'disabled':''}></td>`:'')+
@@ -429,13 +431,14 @@ function rLocDetail(){$('#locPicker').classList.add('hide');$('#locDetail').clas
     <td><input data-id="${l.id}" data-f="obs" value="${esc(c.obs||'')}" style="width:140px" ${closed?'disabled':''}></td>`+
     (sys?`<td class="n">${fmt(l.qty)}</td><td class="n ${d>0?'pos':d<0?'neg':''}">${d==null?'':(d>0?'+':'')+fmt(d)}</td>`:'')+'</tr>'}).join('');
   const phone=S.meta.role==='cont'||matchMedia('(max-width:700px)').matches;$('#locWrap').classList.toggle('hide',phone);$('#locCards').classList.toggle('hide',!phone);
-  if(phone){$('#locTbl').innerHTML='';$('#locCards').innerHTML=ls.map((l,i)=>{const c=S.counts[l.id]||{};const fin=lineFinal(l);const xt=crossTxt(l.id);const d=fin!=null&&l.qty!=null?fin-l.qty:null;
+  if(phone){$('#locTbl').innerHTML='';$('#locCards').innerHTML=ls.map((l,i)=>{i=allL.indexOf(l);const c=S.counts[l.id]||{};const fin=lineFinal(l);const xt=crossTxt(l.id);const d=fin!=null&&l.qty!=null?fin-l.qty:null;
     return `<div class="lc ${fin==null?'':'done'}"><div class="small mut">${l.line?'Línea '+esc(l.line):i+1} · ${esc(l.code)}</div><div class="t">${esc(l.name)}${l.uom?` <span class="small mut">(${esc(l.uom)})</span>`:''}</div>${l.lot?`<div class="small">Serie: <b>${esc(l.lot)}</b></div>`:''}${xt?`<div class="small" style="margin-top:4px"><span class="chip st-cerr">Ya encontrado en ${esc(xt)}</span><br>No hace falta buscarlo aquí. Si no hay más en esta ubicación, déjalo vacío.</div>`:''}
     <div class="r"><label class="small">Conteo<br><input type="number" inputmode="decimal" step="any" min="0" data-id="${l.id}" data-f="q1" value="${c.q1??''}" ${closed?'disabled':''}></label>${anyRec||sys?`<label class="small">Recuento<br><input type="number" inputmode="decimal" step="any" min="0" data-id="${l.id}" data-f="q2" value="${c.q2??''}" ${closed?'disabled':''}></label>`:''}${sys?`<span class="small">Sistema ${fmt(l.qty)} · Dif. <b class="${d>0?'pos':d<0?'neg':''}">${d==null?'':fmt(d)}</b></span>`:''}</div>
     <div class="r">${l.lot?`<input data-id="${l.id}" data-f="lotRead" value="${esc(c.lotRead||'')}" placeholder="Serie leída en caja, si no coincide" class="grow" ${closed?'disabled':''}>`:''}<input data-id="${l.id}" data-f="obs" value="${esc(c.obs||'')}" placeholder="Observación" class="grow" ${closed?'disabled':''}></div></div>`}).join('')||'<div class="mut">Sin productos esperados en esta ubicación.</div>'}
   const ex=S.extras.filter(x=>x.loc===loc);$('#locExtrasCard').classList.toggle('hide',!ex.length);
   $('#locExtras').innerHTML='<tr><th>Descripción / lo que dice la caja</th><th>Código en caja</th><th>Serie</th><th class="n">Cantidad</th><th>Estado</th><th></th></tr>'+ex.map(x=>`<tr><td>${x.photo?`<img src="${x.photo}" class="thumb" data-big> `:''}${esc(x.name)}</td><td>${esc(x.code)}</td><td>${esc(x.lot)}</td><td class="n">${fmt(x.qty)}</td><td>${x.line&&!x.match?`<span class="chip st-cerr">→ línea ${esc(x.line)}</span>`:''}${x.match?`<span class="chip st-cerr">→ ${esc(x.match.code||x.match.name)}</span>`:'<span class="chip st-cont">Pendiente</span>'}</td><td><button class="b s d" data-delx="${x.id}" ${closed?'disabled':''}>Quitar</button></td></tr>`).join('')}
 $('#locShowSys').onchange=rLocDetail;
+$('#locQ').oninput=rLocDetail;$('#locQClear').onclick=()=>{$('#locQ').value='';rLocDetail();$('#locQ').focus()};
 $('#locPair').onchange=e=>{(S.locs[curLoc]=S.locs[curLoc]||{}).pair=e.target.value;save()};
 ['#locTbl','#locCards'].forEach(sel=>$(sel).addEventListener('change',e=>{const t=e.target;if(!t.dataset.id)return;const c=S.counts[t.dataset.id]=S.counts[t.dataset.id]||{};
   if(t.dataset.f==='q1'||t.dataset.f==='q2'){const v=num(t.value);if(v!=null&&v<0){toast('La cantidad no puede ser negativa');t.value='';return}c[t.dataset.f]=v}else c[t.dataset.f]=t.value.trim();
